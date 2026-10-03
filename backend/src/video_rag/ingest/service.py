@@ -38,7 +38,9 @@ class IngestService:
         except Exception as e:
             log.warning("registry write failed (Library may be stale): %s", e)
 
-    async def ingest(self, url: str, job_store=None, job_id: str | None = None) -> dict:
+    async def ingest(
+        self, url: str, job_store=None, job_id: str | None = None, force: bool = False
+    ) -> dict:
         from ..core.url_parsing import course_id_for, parse_url
 
         parsed = parse_url(url)
@@ -53,8 +55,26 @@ class IngestService:
         # expand, so publish it here. Without this the bar cannot move.
         if job_store and job_id:
             job_store.set_total(job_id, len(jobs))
+        # Skip videos whose chunks already exist: saves transcript + embedding
+        # calls. Truth is the vector store, not the registry. force=True
+        # re-indexes everything (e.g. after a pipeline bump).
+        skipped = 0
+        if not force:
+            remaining = []
+            for j in jobs:
+                try:
+                    n = self.store.count_chunks(course_id, j.video_id)
+                except Exception:
+                    n = 0
+                if n > 0:
+                    skipped += 1
+                    if job_store and job_id:
+                        job_store.bump(job_id)
+                else:
+                    remaining.append(j)
+            jobs = remaining
         sem = asyncio.Semaphore(self.settings.ingest_concurrency)
-        indexed, failed = 0, 0
+        indexed, failed = skipped, 0
 
         def _mark(video_id: str, status: str, error: str = "") -> None:
             if not self.registry:
@@ -90,13 +110,16 @@ class IngestService:
                         )
                         for p in parts
                     ]
-                    if chunks:
+                    if not chunks:
+                        failed += 1
+                        _mark(job.video_id, "failed", "empty transcript")
+                    else:
                         vecs = await asyncio.to_thread(
                             self.embedder.embed_texts, [c.text for c in chunks]
                         )
                         await asyncio.to_thread(self.store.upsert, course_id, chunks, vecs)
-                    indexed += 1
-                    _mark(job.video_id, "indexed")
+                        indexed += 1
+                        _mark(job.video_id, "indexed")
                 except Exception as e:
                     failed += 1
                     _mark(job.video_id, "failed", str(e)[:200])
@@ -106,13 +129,22 @@ class IngestService:
         await asyncio.gather(*(one(j) for j in jobs))
         if self.registry:
             try:
-                self.registry.set_course_status(course_id, "ready" if indexed else "failed")
+                await asyncio.to_thread(
+                    self.registry.set_course_status,
+                    course_id,
+                    "ready" if indexed else "failed",
+                )
             except Exception as e:
                 log.warning("registry course status write failed: %s", e)
+        try:
+            chunk_count = await asyncio.to_thread(self.store.count_chunks, course_id)
+        except Exception:
+            chunk_count = 0
         return {
             "course_id": course_id,
-            "requested": len(jobs),
+            "requested": len(jobs) + skipped,
             "indexed": indexed,
             "failed": failed,
-            "chunk_count": self.store.count_chunks(course_id),
+            "skipped": skipped,
+            "chunk_count": chunk_count,
         }

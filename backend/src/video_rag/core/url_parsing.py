@@ -14,29 +14,47 @@ def _norm(url: str) -> str:
     return url
 
 
+def _is_host(host: str, domain: str) -> bool:
+    return host == domain or host.endswith("." + domain)
+
+
+def _require(value: str, message: str) -> str:
+    if not (value or "").strip():
+        raise ValueError(message)
+    return value
+
+
 def parse_url(url: str) -> dict:
     raw = _norm(url)
     u = urlparse(raw)
     host = (u.hostname or "").lower()
     path = u.path or ""
     qs = parse_qs(u.query)
-    if "youtu.be" in host:
-        vid = path.strip("/").split("/")[0]
+    if _is_host(host, "youtu.be"):
+        vid = path.strip("/").split("/")[0] if path.strip("/") else ""
+        _require(vid, "could not classify URL")
         return {"kind": "video", "video_id": vid, "source_url": raw}
-    if "youtube.com" not in host and "youtube-nocookie.com" not in host:
+    if not (_is_host(host, "youtube.com") or _is_host(host, "youtube-nocookie.com")):
         raise ValueError("not a YouTube URL")
     if path.startswith("/shorts/"):
-        return {"kind": "video", "video_id": path.split("/")[2], "source_url": raw}
+        parts = path.split("/")
+        vid = parts[2] if len(parts) > 2 else ""
+        _require(vid, "could not classify URL")
+        return {"kind": "video", "video_id": vid, "source_url": raw}
     if path.startswith("/watch"):
         vid = (qs.get("v") or [""])[0]
         lst = (qs.get("list") or [""])[0]
         if vid and lst:
             return {"kind": "ambiguous", "video_id": vid, "playlist_id": lst, "source_url": raw}
         if lst:
+            _require(lst, "could not classify URL")
             return {"kind": "playlist", "playlist_id": lst, "source_url": raw}
+        _require(vid, "could not classify URL")
         return {"kind": "video", "video_id": vid, "source_url": raw}
     if path.startswith("/playlist"):
-        return {"kind": "playlist", "playlist_id": (qs.get("list") or [""])[0], "source_url": raw}
+        pid = (qs.get("list") or [""])[0]
+        _require(pid, "could not classify URL")
+        return {"kind": "playlist", "playlist_id": pid, "source_url": raw}
     # Channels: keep stable course_id by stripping @ and ignoring the tab.
     for prefix in ("/channel/", "/c/", "/user/"):
         if path.startswith(prefix):

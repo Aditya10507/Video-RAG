@@ -11,7 +11,14 @@ class JobStore:
         self.retention = retention
         self.jobs: dict = {}
 
+    def _purge(self) -> None:
+        now = time.time()
+        expired = [k for k, v in self.jobs.items() if now - v.get("created", now) > self.retention]
+        for k in expired:
+            self.jobs.pop(k, None)
+
     def create(self, total: int = 0) -> str:
+        self._purge()
         jid = uuid.uuid4().hex[:12]
         self.jobs[jid] = {
             "job_id": jid,

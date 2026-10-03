@@ -56,9 +56,11 @@ class CaptionTranscriptProvider:
                 words: list = []
                 for cue in clean:
                     words.extend(words_with_times(cue))
+                generated = getattr(track, "is_generated", True)
+                source = "auto_captions" if generated else "human_captions"
                 return TranscriptDocument(
                     video_id=video_id,
-                    transcript_source="auto_captions",
+                    transcript_source=source,
                     raw_words=words,
                     clean_text=" ".join(c["text"] for c in clean),
                 )
@@ -66,9 +68,11 @@ class CaptionTranscriptProvider:
                 raise
             except Exception as e:
                 last = e
+                if attempt >= self.retry_attempts - 1:
+                    break
                 msg = str(e)
                 if "429" in msg or "throttl" in msg.lower():
                     time.sleep(self.base_delay * (2**attempt))
-                    continue
-                time.sleep(self.base_delay)
+                else:
+                    time.sleep(self.base_delay)
         raise TranscriptUnavailableError(f"captions failed: {last}")

@@ -112,6 +112,19 @@ class Settings:
             raise ConfigurationError("production needs VIDEO_RAG_API_KEYS or ALLOW_ANONYMOUS=true")
         if "*" in self.cors_origins and self.environment == "production":
             raise ConfigurationError("wildcard CORS is rejected in production")
+        if not (0 <= self.threshold_low <= self.threshold_high <= 1):
+            raise ConfigurationError("thresholds must satisfy 0 <= LOW <= HIGH <= 1")
+        for name in (
+            "retrieve_top_k",
+            "rerank_top_k",
+            "chunk_window_seconds",
+            "embedding_dimension",
+            "max_question_characters",
+        ):
+            if getattr(self, name) <= 0:
+                raise ConfigurationError(f"{name} must be positive")
+        if self.http_timeout_seconds <= 0 or self.llm_timeout_seconds <= 0:
+            raise ConfigurationError("timeouts must be positive")
 
 
 def _split_csv(raw: str) -> tuple:

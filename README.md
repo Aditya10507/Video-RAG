@@ -38,7 +38,6 @@ video-rag/
     requirements.txt  runtime dependencies
     requirements-dev.txt  test and lint dependencies
     pyproject.toml    package, pytest, ruff and mypy settings
-    Dockerfile        production image
   frontend/           the web page: three files, no build step
     index.html        page structure
     styles.css        styling
@@ -53,9 +52,7 @@ video-rag/
     INTERVIEW.md      how to present this project
     diagrams/         exported diagrams (PNG plus interactive HTML and spec)
   .env.example        every setting with comments; copy to .env
-  .dockerignore       keeps the Docker build context small
   .gitignore          keeps secrets and local data out of git
-  docker-compose.yml  API plus Qdrant, one command to start
   README.md           this file
 ```
 
@@ -193,9 +190,11 @@ asserts both outcomes.
 
 ## Deployment
 
-`docker compose up --build` starts the API, the web page and a real Qdrant
-instance. `docs/DEPLOY.md` covers that plus a single container deployment and
-the production checklist.
+The app runs directly from the venv: set the required keys in `.env`
+(`VIDEO_RAG_JINA_API_KEY`, `VIDEO_RAG_LLM_API_KEY`) and start it with
+`$env:PYTHONPATH = "backend\src"` followed by
+`.\.venv\Scripts\python.exe -m video_rag.cli serve`.
+Qdrant Cloud holds the vectors, so no local services are needed.
 
 ## Honest limitations
 

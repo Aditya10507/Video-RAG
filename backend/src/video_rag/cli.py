@@ -127,7 +127,7 @@ def cmd_ingest(args) -> int:
 
     report = asyncio.run(
         IngestService(c.settings, c.catalog, c.transcripts, c.embedder, c.store, c.registry).ingest(
-            args.url
+            args.url, force=getattr(args, "force", False)
         )
     )
     print(json.dumps(report, indent=2))
@@ -147,6 +147,7 @@ def main() -> None:
     a.add_argument("--video", "-v", default=None)
     g = sub.add_parser("ingest")
     g.add_argument("url")
+    g.add_argument("--force", action="store_true")
     args = p.parse_args()
     raise SystemExit(
         {

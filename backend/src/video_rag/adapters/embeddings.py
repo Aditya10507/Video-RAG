@@ -23,20 +23,34 @@ class JinaEmbedder:
         self.timeout = timeout
 
     def _post(self, texts: list[str], task: str) -> list[list[float]]:
-        try:
-            r = httpx.post(
-                "https://api.jina.ai/v1/embeddings",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={"model": self.model, "task": task, "input": texts},
-                timeout=self.timeout,
-            )
-            r.raise_for_status()
-            return [d["embedding"] for d in r.json()["data"]]
-        except Exception as e:
-            raise EmbeddingError(f"embedding failed: {e}") from e
+        import time
+
+        last: Exception | None = None
+        for attempt in range(3):
+            try:
+                r = httpx.post(
+                    "https://api.jina.ai/v1/embeddings",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"model": self.model, "task": task, "input": texts},
+                    timeout=self.timeout,
+                )
+                if r.status_code in (429, 502, 503, 504) and attempt < 2:
+                    time.sleep(1.0 * (attempt + 1))
+                    continue
+                r.raise_for_status()
+                return [d["embedding"] for d in r.json()["data"]]
+            except EmbeddingError:
+                raise
+            except Exception as e:
+                last = e
+                if attempt < 2:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                raise EmbeddingError(f"embedding failed: {e}") from e
+        raise EmbeddingError(f"embedding failed: {last}")
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         out: list[list[float]] = []

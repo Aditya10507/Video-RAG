@@ -28,10 +28,15 @@ def _build_embedder(settings):
         )
     from .adapters.embeddings import HashingEmbedder
 
-    return HashingEmbedder()
+    log.warning("no JINA key: toy hashing embedder dim=%s", settings.embedding_dimension)
+    return HashingEmbedder(dim=settings.embedding_dimension)
 
 
 def _build_store(settings):
+    if settings.vector_backend not in ("qdrant", "memory"):
+        from .errors import ConfigurationError
+
+        raise ConfigurationError("VECTOR_BACKEND must be qdrant or memory")
     if settings.vector_backend == "qdrant":
         from .adapters.vector_store_qdrant import QdrantVectorStore
 

@@ -28,6 +28,8 @@ class JinaReranker:
     def score(self, query: str, chunks: list[Chunk]) -> list[float]:
         if not chunks:
             return []
+        import logging
+
         try:
             r = httpx.post("https://api.jina.ai/v1/rerank",
                            headers={"Authorization": f"Bearer {self.api_key}",
@@ -40,5 +42,6 @@ class JinaReranker:
             by_index = {res.get("index"): float(res.get("relevance_score", 0))
                         for res in results}
             return [by_index.get(i, 0.0) for i in range(len(chunks))]
-        except Exception:
+        except Exception as e:
+            logging.getLogger(__name__).warning("jina rerank failed, lexical fallback: %s", e)
             return LexicalReranker().score(query, chunks)

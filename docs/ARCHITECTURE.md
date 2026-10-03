@@ -1027,11 +1027,9 @@ video-rag/
 │   ├── eval/                     positives, negatives and the threshold sweep
 │   ├── requirements.txt
 │   ├── requirements-dev.txt
-│   ├── pyproject.toml
-│   └── Dockerfile
+│   └── pyproject.toml
 ├── frontend/                     index.html, styles.css, app.js
 ├── docs/                         this document, WINDOWS, DEPLOY, INTERVIEW
-├── docker-compose.yml            API plus Qdrant
 ├── run.ps1, run.cmd              Windows task runners
 ├── .env.example
 └── README.md

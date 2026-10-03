@@ -49,8 +49,8 @@
         </div>
       </header>
 
-      <!-- HOME VIEW: vertical two-column workflow. Left = index, then the
-           video and its timestamps. Right = ask, then the answer text. -->
+      <!-- HOME VIEW: left = index + watch, right = chat only. There is no
+           separate "Ask a question" box: the chat input sends the question. -->
       <main id="view-home">
         <div class="home-grid">
           <div class="home-left">
@@ -100,35 +100,64 @@
           </div>
 
           <div class="home-right">
-            <!-- Revealed after the first chunks land, so a new user meets the
-                 index step first and the ask step second. -->
-            <section id="ask-col" class="card" hidden>
-              <h2>2. Ask a question</h2>
+            <!-- Single chat panel: header, course scope, thread, typing,
+                 input. Course/video ids stay as hidden state for the API. -->
+            <section id="chat-panel" class="chat-panel" aria-label="Course chat">
+              <div id="chat-resizer" role="separator" aria-orientation="vertical"
+                aria-label="Resize chat" title="Drag to resize"></div>
+              <div class="chat-panel-head">
+                <div class="assistant-id">
+                  <span class="assistant-avatar" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                      <rect x="4" y="7" width="16" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2" />
+                      <circle cx="9" cy="12" r="1" fill="currentColor" />
+                      <circle cx="15" cy="12" r="1" fill="currentColor" />
+                      <line x1="12" y="7" x2="12" y="4" stroke="currentColor" stroke-width="2" />
+                      <circle cx="12" cy="3" r="1" fill="currentColor" />
+                    </svg>
+                  </span>
+                  <div class="assistant-meta">
+                    <strong id="chat-title">Assistant</strong>
+                    <span class="online"><span class="online-dot"></span>Online</span>
+                  </div>
+                </div>
+                <div class="chat-panel-actions">
+                  <button id="clear-chat" type="button" class="icon-button text-button" title="Clear this chat">Clear</button>
+                </div>
+              </div>
 
-              <form id="ask-form">
-                <div class="row">
-                  <input id="course-id" list="known-courses" required
-                    placeholder="Course id, for example PLxxxxxxxx" />
-                  <datalist id="known-courses"></datalist>
-                </div>
-                <div class="row">
-                  <input id="video-id" list="known-videos" placeholder="Video id (optional - one video only)" />
-                  <datalist id="known-videos"></datalist>
-                </div>
-                <div class="row">
-                  <input id="question" required maxlength="500" placeholder="where can we use hashmaps" />
-                  <button id="ask-button" type="submit">Ask</button>
-                </div>
-              </form>
+              <div class="chat-scope">
+                <span id="chat-course-label" class="chat-course-label">No course selected</span>
+                <button id="chat-scope-clear" type="button" class="chat-scope-x" aria-label="Clear video filter" title="Clear video filter" hidden>&times;</button>
+              </div>
+              <input id="course-id" type="hidden" />
+              <input id="video-id" type="hidden" />
+              <datalist id="known-courses"></datalist>
+              <datalist id="known-videos"></datalist>
+
+              <div class="chat-date-divider"><span>Today</span></div>
+
+              <div id="chat-thread" class="chat-thread" aria-live="polite"></div>
+
+              <div id="chat-typing" class="typing-row" hidden>
+                <span class="assistant-avatar sm" aria-hidden="true"></span>
+                <span class="typing-bubble"><span></span><span></span><span></span></span>
+              </div>
 
               <p id="ask-status" class="status" hidden></p>
-            </section>
 
-            <section id="answer-card" class="card" hidden>
-              <div class="answer-head">
-                <h2>Answer</h2>
+              <form id="ask-form" class="chat-input-row" autocomplete="off">
+                <input id="question" required maxlength="500" placeholder="Type a message..." aria-label="Type a message" />
+                <button id="ask-button" type="submit" class="send-btn" aria-label="Send message" title="Send">&#8593;</button>
+              </form>
+              <p class="chat-disclaimer">Assistant can make mistakes. Check important info.</p>
+
+              <!-- Latest-answer helpers reused by streaming/translation logic. -->
+              <div hidden aria-hidden="true">
                 <span id="answer-badge" class="badge"></span>
                 <span id="answer-score" class="score"></span>
+                <p id="answer-message" class="message"></p>
+                <p id="answer-text" class="answer-text"></p>
                 <div id="translation-tools" class="translation-tools" hidden>
                   <select id="translation-language" aria-label="Translation language">
                     <option value="">Translate to...</option>
@@ -150,11 +179,8 @@
                     </svg>
                   </button>
                 </div>
+                <p id="translation-status" class="status" role="status" aria-live="polite" hidden></p>
               </div>
-
-              <p id="answer-message" class="message"></p>
-              <p id="answer-text" class="answer-text"></p>
-              <p id="translation-status" class="status" role="status" aria-live="polite" hidden></p>
             </section>
           </div>
         </div>

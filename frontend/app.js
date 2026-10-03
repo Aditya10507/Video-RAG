@@ -30,6 +30,12 @@ BADGE_CLASS.answered = "badge badge-ok";
 BADGE_CLASS.partial = "badge badge-warn";
 BADGE_CLASS.not_covered = "badge badge-refuse";
 
+// Same list as the answer-box picker from the translation feature
+// (session 2026-10-03): the picker now lives on every answer bubble.
+var TRANSLATE_LANGUAGES = ["English", "Hindi", "Spanish", "French", "German",
+  "Portuguese", "Arabic", "Japanese", "Chinese"];
+var TRANSLATE_SVG = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12.87 15.07 10.33 12.56l.03-.03a17.52 17.52 0 0 0 3.71-6.3H17V4h-7V2H8v2H1v2h11.17a15.62 15.62 0 0 1-3 4.92A15.7 15.7 0 0 1 7 7H5a17.7 17.7 0 0 0 2.83 5.33L2.5 17.58 3.92 19l5.25-5.25 3.27 3.27.43-1.95ZM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12Zm-2.62 7 1.62-4.33L19.12 17h-3.24Z"></path></svg>';
+
 
 // --- Small helpers ---------------------------------------------------------
 
@@ -212,8 +218,12 @@ async function handleIngest(event) {
     rememberCourse(courseId);
     loadLibrary();
     // Chunking finished: open the Ask column beside the index card.
+    // Paste of an already-indexed link reopens its previous chat.
     revealAsk();
     showView("home");
+    if (courseId) {
+      loadChat(courseId);
+    }
   } catch (error) {
     setStatus(el("ingest-status"), error.message, "error");
   } finally {
@@ -488,7 +498,7 @@ async function tryTrueStream(body, token, onToken) {
 }
 
 
-// --- Step 2: asking a question ---------------------------------------------
+// --- Chat send: the input IS the ask box -------------------------------------
 
 async function handleAsk(event) {
   event.preventDefault();
@@ -500,31 +510,53 @@ async function handleAsk(event) {
   var button = el("ask-button");
   button.disabled = true;
 
+  var courseId = el("course-id").value.trim();
   var videoId = el("video-id").value.trim();
-  setStatus(
-    el("ask-status"),
-    videoId ? "Searching that one video..." : "Searching the course..."
-  );
+  if (!courseId) {
+    setStatus(el("ask-status"), "Index a course first, then ask.", "error");
+    button.disabled = false;
+    return;
+  }
+  var questionText = el("question").value.trim();
+  if (!questionText) {
+    button.disabled = false;
+    return;
+  }
 
   try {
     var body = {};
-    body.question = el("question").value.trim();
-    body.course_id = el("course-id").value.trim();
+    body.question = questionText;
+    body.course_id = courseId;
     if (videoId) {
       body.video_id = videoId;
     }
 
-    // Show the card instantly with a live shimmer so the user sees motion
-    // within one frame, then fill the text as tokens arrive.
-    el("answer-card").hidden = false;
+    if (body.course_id !== currentChatCourse) {
+      await loadChat(body.course_id);
+    }
+    // Optimistic user bubble + typing indicator; the assistant bubble
+    // streams into place below.
+    el("question").value = "";
+    el("chat-thread").appendChild(userBubbleNode(questionText));
+    scrollChat();
+    setTyping(true);
+    el("ask-status").hidden = true;
+
+    // Hidden latest-answer nodes keep streaming/translation/player logic
+    // reusable; the visible bubble mirrors them.
     el("answer-message").textContent = "";
     el("answer-text").textContent = "";
     el("answer-score").textContent = "";
     resetAnswerTranslation("");
     setStreamingUI(true);
 
+    var holder = el("chat-thread");
+    var pending = assistantBubbleNode({ answer: "" });
+    pending.textNode.textContent = "";
+    holder.appendChild(pending.row);
+    scrollChat();
+
     var streamedText = "";
-    var answerNode = el("answer-text");
     var result = null;
 
     try {
@@ -533,35 +565,42 @@ async function handleAsk(event) {
           return;
         }
         streamedText += tok;
-        // Direct append for true tokens: no re-layout of the whole string,
-        // just the delta. rAF-throttle via textContent is already cheap.
-        answerNode.textContent = streamedText;
+        pending.textNode.textContent = streamedText;
+        scrollChat();
       });
-      // True stream delivered tokens live; mark UI done below.
       if (token !== activeAskToken) {
         return;
       }
+      setTyping(false);
     } catch (streamError) {
-      // No /ask/stream on this backend yet: fall back to normal /ask.
+      // Fallback to plain /ask with the smooth reveal into the bubble.
       result = await request("/ask", "POST", body);
       if (token !== activeAskToken) {
         return;
       }
-      el("ask-status").hidden = true;
-      rememberCourse(body.course_id);
-      // Hand over to the smooth renderer; it clears the shimmer when done.
-      await renderAnswerStreamed(result, token);
-      return;
+      setTyping(false);
+      streamedText = result.answer || "";
+      if (streamedText && !prefersReducedMotion()) {
+        await streamTextSmooth(pending.textNode, streamedText, token);
+        if (token !== activeAskToken) {
+          return;
+        }
+      } else {
+        pending.textNode.textContent = streamedText;
+      }
     }
 
     el("ask-status").hidden = true;
     rememberCourse(body.course_id);
-    // True-stream path: text is already on screen; finish metadata + sources
-    // with the reveal animation, then drop the streaming glow.
     await renderAnswerStreamed(result, token, streamedText);
+    // Swap the pending bubble for the final one (badge + citation link).
+    result.question = questionText;
+    holder.removeChild(pending.row);
+    appendAssistantTurn(result);
   } catch (error) {
     if (token === activeAskToken) {
       stopActiveStream();
+      setTyping(false);
       setStatus(el("ask-status"), error.message, "error");
     }
   } finally {
@@ -594,20 +633,347 @@ function showView(name) {
   }
 }
 
-// The Ask column stays hidden until the first chunks land, so a new user
-// meets Index first and Ask second.
+// The chat panel is always visible: "reveal" just refreshes the scope label.
 function revealAsk() {
-  el("ask-col").hidden = false;
+  updateChatScope();
 }
 
-function goHomeWithSelection(courseId, videoId) {
-  el("course-id").value = courseId || "";
-  el("video-id").value = videoId || "";
+function updateChatScope() {
+  var courseId = (el("course-id") && el("course-id").value.trim()) || currentChatCourse || "";
+  var videoId = (el("video-id") && el("video-id").value.trim()) || "";
+  var label = el("chat-course-label");
+  if (label) {
+    label.textContent = courseId
+      ? (videoId ? courseId + " · " + videoId : courseId)
+      : "No course selected — index a link or pick from Library";
+    label.title = label.textContent;
+  }
+  var title = el("chat-title");
+  if (title && courseId) {
+    title.textContent = "Assistant";
+  }
+  var x = el("chat-scope-clear");
+  if (x) {
+    x.hidden = !videoId;
+  }
+}
+
+// Single source of truth for course selection: hidden state + scope label
+// + thread load. Library and ingest both go through here.
+function selectCourse(courseId, videoId) {
+  if (el("course-id")) {
+    el("course-id").value = courseId || "";
+  }
+  if (el("video-id")) {
+    el("video-id").value = videoId || "";
+  }
   if (courseId) {
     rememberCourse(courseId);
   }
-  revealAsk();
+  updateChatScope();
   showView("home");
+  if (courseId) {
+    loadChat(courseId);
+  }
+}
+
+function goHomeWithSelection(courseId, videoId) {
+  selectCourse(courseId, videoId);
+}
+
+
+// --- Chat thread: single thread per course, stored in the backend DB --------
+// Bubbles follow the reference layout: user right/blue, assistant left/white
+// with avatar. Each assistant bubble carries its status badge + timestamp
+// link, which seeks the shared player on the left.
+
+var currentChatCourse = "";
+
+function scrollChat() {
+  var holder = el("chat-thread");
+  if (holder) {
+    holder.scrollTop = holder.scrollHeight;
+  }
+}
+
+function setTyping(on) {
+  var t = el("chat-typing");
+  if (t) {
+    t.hidden = !on;
+  }
+  if (on) {
+    scrollChat();
+  }
+}
+
+function userBubbleNode(text) {
+  var row = document.createElement("div");
+  row.className = "bubble-row user";
+  var b = document.createElement("div");
+  b.className = "bubble";
+  b.textContent = text;
+  row.appendChild(b);
+  return row;
+}
+
+function assistantBubbleNode(turn) {
+  var row = document.createElement("div");
+  row.className = "bubble-row assistant";
+
+  var avatar = document.createElement("span");
+  avatar.className = "assistant-avatar sm";
+  avatar.setAttribute("aria-hidden", "true");
+  row.appendChild(avatar);
+
+  var b = document.createElement("div");
+  b.className = "bubble";
+
+  var text = document.createElement("div");
+  text.className = "bubble-text";
+  text.textContent = (turn && (turn.answer || turn.message)) || "";
+  b.appendChild(text);
+
+  if (turn && turn.status) {
+    var meta = document.createElement("div");
+    meta.className = "bubble-meta";
+    var badge = document.createElement("span");
+    badge.textContent = turn.status.replace("_", " ");
+    badge.className = BADGE_CLASS[turn.status] || "badge";
+    meta.appendChild(badge);
+    var cite = turn.primary_source;
+    if (cite) {
+      var link = document.createElement("button");
+      link.type = "button";
+      link.className = "cite-link";
+      link.textContent = (cite.video_title || cite.video_id) + " at " + cite.timestamp_label;
+      link.addEventListener("click", function () {
+        playCitation(cite);
+      });
+      meta.appendChild(link);
+    }
+    b.appendChild(meta);
+    // Translate icon on every generated answer. Always translates from the
+    // original text, so switching languages never chains translations.
+    if (turn.answer) {
+      var tbtn = document.createElement("button");
+      tbtn.type = "button";
+      tbtn.className = "translate-button bubble-translate";
+      tbtn.title = "Translate answer";
+      tbtn.setAttribute("aria-label", "Translate answer");
+      tbtn.innerHTML = TRANSLATE_SVG;
+      var trow = translateRowNode(turn.answer, text);
+      tbtn.addEventListener("click", function () {
+        trow.hidden = !trow.hidden;
+      });
+      meta.appendChild(tbtn);
+      b.appendChild(trow);
+    }
+  }
+  row.appendChild(b);
+  return { row: row, textNode: text, bubble: b };
+}
+
+// Inline language picker for one bubble. Stale responses (slow request
+// overtaken by a newer pick) are dropped via the per-bubble token.
+function translateRowNode(originalText, textNode) {
+  var wrap = document.createElement("div");
+  wrap.className = "translate-row";
+  wrap.hidden = true;
+
+  var select = document.createElement("select");
+  select.setAttribute("aria-label", "Translation language");
+  var placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Translate to...";
+  select.appendChild(placeholder);
+  TRANSLATE_LANGUAGES.forEach(function (lang) {
+    var option = document.createElement("option");
+    option.value = lang;
+    option.textContent = lang;
+    select.appendChild(option);
+  });
+
+  var status = document.createElement("span");
+  status.className = "translate-status";
+
+  var token = 0;
+  select.addEventListener("change", async function () {
+    var lang = select.value;
+    if (!lang) {
+      textNode.textContent = originalText;
+      status.textContent = "";
+      return;
+    }
+    var my = ++token;
+    select.disabled = true;
+    status.textContent = "Translating to " + lang + "...";
+    try {
+      var result = await request("/translate", "POST", {
+        answer: originalText,
+        target_language: lang
+      });
+      if (my === token) {
+        textNode.textContent = result.translated_answer;
+        status.textContent = "Translated to " + result.target_language;
+      }
+    } catch (error) {
+      if (my === token) {
+        status.textContent = error.message;
+      }
+    } finally {
+      if (my === token) {
+        select.disabled = false;
+      }
+    }
+  });
+
+  wrap.appendChild(select);
+  wrap.appendChild(status);
+  return wrap;
+}
+
+function renderChatThread(turns) {
+  var holder = el("chat-thread");
+  if (!holder) {
+    return;
+  }
+  removeChildren(holder);
+  if (!turns || turns.length === 0) {
+    var greet = document.createElement("div");
+    greet.className = "bubble-row assistant";
+    var avatar = document.createElement("span");
+    avatar.className = "assistant-avatar sm";
+    avatar.setAttribute("aria-hidden", "true");
+    greet.appendChild(avatar);
+    var gb = document.createElement("div");
+    gb.className = "bubble";
+    gb.textContent = "Hi! I'm your assistant. How can I help today?";
+    greet.appendChild(gb);
+    holder.appendChild(greet);
+    return;
+  }
+  turns.forEach(function (turn) {
+    holder.appendChild(userBubbleNode(turn.question || ""));
+    holder.appendChild(assistantBubbleNode(turn).row);
+  });
+  scrollChat();
+}
+
+// The user bubble is added optimistically at send time, so this appends
+// the assistant side only. (Appending a full turn here duplicated the
+// question: once optimistic, once with the answer.)
+function appendAssistantTurn(turn) {
+  var holder = el("chat-thread");
+  if (!holder) {
+    return;
+  }
+  holder.appendChild(assistantBubbleNode(turn).row);
+  scrollChat();
+}
+
+async function loadChat(courseId) {
+  currentChatCourse = courseId || "";
+  updateChatScope();
+  if (!courseId) {
+    renderChatThread([]);
+    return;
+  }
+  try {
+    var payload = await request("/courses/" + encodeURIComponent(courseId) + "/messages?limit=100");
+    renderChatThread((payload && payload.messages) || []);
+  } catch (error) {
+    renderChatThread([]);
+  }
+}
+
+async function clearChat() {
+  var courseId = (el("course-id") && el("course-id").value.trim()) || currentChatCourse;
+  if (!courseId) {
+    return;
+  }
+  try {
+    await request("/courses/" + encodeURIComponent(courseId) + "/messages", "DELETE");
+  } catch (error) {
+    setStatus(el("ask-status"), error.message, "error");
+    return;
+  }
+  renderChatThread([]);
+}
+
+
+// --- Chat resize: drag the panel's left border, like the sidebar resizer --
+// Width persists across reloads. Double-click toggles default <-> widest.
+
+var CHAT_WIDTH_KEY = "video-rag.chat-width";
+var CHAT_DEFAULT_PX = 400;
+var CHAT_MIN_PX = 340;
+
+function chatMaxWidth() {
+  var grid = document.querySelector(".home-grid");
+  var total = grid ? grid.getBoundingClientRect().width : window.innerWidth;
+  return Math.max(CHAT_MIN_PX + 40, total - 300);
+}
+
+function setChatWidth(pixels) {
+  var max = chatMaxWidth();
+  var clamped = Math.min(max, Math.max(CHAT_MIN_PX, pixels));
+  document.documentElement.style.setProperty("--chat-width", clamped + "px");
+  try {
+    window.localStorage.setItem(CHAT_WIDTH_KEY, String(clamped));
+  } catch (error) {
+    /* private mode: layout still works, it just won't persist */
+  }
+}
+
+function initChatResizer() {
+  try {
+    var saved = parseInt(window.localStorage.getItem(CHAT_WIDTH_KEY), 10);
+    if (saved >= CHAT_MIN_PX && saved <= 1600) {
+      document.documentElement.style.setProperty("--chat-width", saved + "px");
+    }
+  } catch (error) {
+    /* ignore */
+  }
+
+  var resizer = el("chat-resizer");
+  if (!resizer) {
+    return;
+  }
+  var shell = document.getElementById("app-shell");
+
+  resizer.addEventListener("dblclick", function () {
+    var current = document.getElementById("chat-panel").getBoundingClientRect().width;
+    if (current >= chatMaxWidth() - 2) {
+      setChatWidth(CHAT_DEFAULT_PX);
+    } else {
+      setChatWidth(chatMaxWidth());
+    }
+  });
+
+  resizer.addEventListener("pointerdown", function (startEvent) {
+    startEvent.preventDefault();
+    resizer.setPointerCapture(startEvent.pointerId);
+    shell.classList.add("chat-resizing");
+
+    var panel = document.getElementById("chat-panel");
+    var startX = startEvent.clientX;
+    var startWidth = panel.getBoundingClientRect().width;
+
+    function onMove(moveEvent) {
+      setChatWidth(startWidth + startX - moveEvent.clientX);
+    }
+
+    function onUp() {
+      resizer.removeEventListener("pointermove", onMove);
+      resizer.removeEventListener("pointerup", onUp);
+      resizer.removeEventListener("pointercancel", onUp);
+      shell.classList.remove("chat-resizing");
+    }
+
+    resizer.addEventListener("pointermove", onMove);
+    resizer.addEventListener("pointerup", onUp);
+    resizer.addEventListener("pointercancel", onUp);
+  });
 }
 
 
@@ -687,6 +1053,7 @@ function courseRow(course) {
     el("course-id").value = course.course_id;
     el("video-id").value = "";
     rememberCourse(course.course_id);
+    updateChatScope();
     if (opening) {
       loadCourseVideos(course.course_id, sub);
     }
@@ -775,7 +1142,6 @@ function videoRow(courseId, video) {
 
 function renderAnswer(result) {
   stopActiveStream();
-  el("answer-card").hidden = false;
 
   var badge = el("answer-badge");
   badge.textContent = result.status.replace("_", " ");
@@ -793,8 +1159,6 @@ function renderAnswer(result) {
 // smoothly. If preStreamedText is given (true SSE path), the text is already
 // visible and we only finish the metadata.
 async function renderAnswerStreamed(result, token, preStreamedText) {
-  el("answer-card").hidden = false;
-
   var badge = el("answer-badge");
   badge.textContent = result.status.replace("_", " ");
   badge.className = BADGE_CLASS[result.status] || "badge";
@@ -1023,6 +1387,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
   el("ingest-form").addEventListener("submit", handleIngest);
   el("ask-form").addEventListener("submit", handleAsk);
+  el("clear-chat").addEventListener("click", clearChat);
+  el("chat-scope-clear").addEventListener("click", function () {
+    if (el("video-id")) {
+      el("video-id").value = "";
+    }
+    updateChatScope();
+  });
   el("translation-language").addEventListener("change", updateTranslationButton);
   el("translate-button").addEventListener("click", translateAnswer);
   el("library-refresh").addEventListener("click", loadLibrary);
@@ -1036,12 +1407,18 @@ document.addEventListener("DOMContentLoaded", function () {
 
   renderCourseOptions();
   initSidebar();
+  initChatResizer();
   showView("home");
   loadLibrary();
 
   var courses = loadCourses();
   if (courses.length > 0) {
     el("course-id").value = courses[0];
+    revealAsk();
+    loadChat(courses[0]);
+  } else {
+    updateChatScope();
+    renderChatThread([]);
   }
 
   refreshHealth();

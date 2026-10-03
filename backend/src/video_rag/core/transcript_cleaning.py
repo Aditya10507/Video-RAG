@@ -35,7 +35,9 @@ def dedupe_cues(cues: list[dict]) -> list[dict]:
 
 
 def words_with_times(cue: dict) -> list[dict]:
-    words = cue["text"].split()
+    words = (cue.get("text") or "").split()
+    if not words:
+        return []
     total = sum(len(w) for w in words) or 1
     t, out = float(cue["start"]), []
     for w in words:

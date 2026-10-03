@@ -45,7 +45,7 @@ async def ingest(body: IngestRequest, request: Request, x_api_key=Depends(api_ke
 
     async def run():
         try:
-            report = await svc.ingest(body.url, _jobs, jid)
+            report = await svc.ingest(body.url, _jobs, jid, force=body.force)
             _jobs.finish(jid, report, report.get("course_id", ""))
         except Exception as e:
             _jobs.fail(jid, str(e))
@@ -64,7 +64,14 @@ def job(job_id: str, request: Request, x_api_key=Depends(api_key_header)):
 
 
 @router.get("/jobs/{job_id}/stream")
-async def job_stream(job_id: str, request: Request):
+async def job_stream(job_id: str, request: Request, x_api_key=Depends(api_key_header)):
+    # EventSource cannot send headers, so accept ?api_key= as fallback (stream only).
+    key = x_api_key or request.query_params.get("api_key")
+    try:
+        check_key(_settings(request), key)
+    except Exception:
+        return err("unauthorized", "invalid API key", 401)
+
     async def gen():
         while True:
             j = _jobs.get(job_id)
@@ -163,16 +170,20 @@ def courses(request: Request, x_api_key=Depends(api_key_header)):
     chunks_by_course = c.store.count_chunks_by_course_and_video(
         [row.get("course_id", "") for row in rows]
     )
+    try:
+        all_videos = c.registry.list_all_course_videos()
+    except Exception:
+        all_videos = {}
     for row in rows:
         cid = row.get("course_id", "")
         chunks_by_video = chunks_by_course.get(cid, {})
         n = sum(chunks_by_video.values())
         # Truthful indexed-video count: registry rows alone prove nothing about
         # vectors, so a video counts only when its chunks exist in the store.
-        indexed_videos = sum(
-            chunks_by_video.get(v.get("video_id", ""), 0) > 0
-            for v in c.registry.list_course_videos(cid)
-        )
+        vids = all_videos.get(cid) if all_videos else None
+        if vids is None:
+            vids = c.registry.list_course_videos(cid)
+        indexed_videos = sum(chunks_by_video.get(v.get("video_id", ""), 0) > 0 for v in vids)
         out.append(
             {
                 "course_id": cid,
@@ -211,3 +222,30 @@ def syllabus(course_id: str, request: Request, x_api_key=Depends(api_key_header)
     check_key(c.settings, x_api_key)
     titles = [v.get("title", "") for v in c.registry.list_course_videos(course_id)[:20]]
     return {"course_id": course_id, "topics": [t for t in titles if t]}
+
+
+@router.get("/courses/{course_id}/messages")
+def chat_history(course_id: str, request: Request, x_api_key=Depends(api_key_header)):
+    """Single thread per course: the full Q&A log for this video/playlist."""
+    c = _container(request)
+    check_key(c.settings, x_api_key)
+    try:
+        limit = int(request.query_params.get("limit", "100"))
+    except ValueError:
+        limit = 100
+    try:
+        msgs = c.registry.list_messages(course_id, limit=max(1, min(limit, 500)))
+    except Exception as e:
+        return err("chat_failed", str(e)[:200], 500)
+    return {"course_id": course_id, "messages": msgs}
+
+
+@router.delete("/courses/{course_id}/messages")
+def clear_chat(course_id: str, request: Request, x_api_key=Depends(api_key_header)):
+    c = _container(request)
+    check_key(c.settings, x_api_key)
+    try:
+        deleted = c.registry.clear_messages(course_id)
+    except Exception as e:
+        return err("chat_failed", str(e)[:200], 500)
+    return {"course_id": course_id, "deleted": deleted}

@@ -12,7 +12,7 @@ import httpx
 from ..core.models import VideoJob
 from ..errors import CatalogUnavailableError
 
-_ISO = re.compile(r"P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?")
+_ISO = re.compile(r"P(?:(\d+)W)?(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?")
 
 
 def parse_iso8601_duration(raw: str) -> int:
@@ -21,8 +21,13 @@ def parse_iso8601_duration(raw: str) -> int:
     m = _ISO.fullmatch(raw.strip())
     if not m:
         return 0
-    d, h, mi, s = (int(x or 0) for x in m.groups())
-    return d * 86400 + h * 3600 + mi * 60 + s
+    w, d, h, mi, s = (int(x or 0) for x in m.groups())
+    return w * 604800 + d * 86400 + h * 3600 + mi * 60 + s
+
+
+def _is_unavailable_title(title: str) -> bool:
+    low = (title or "").strip().lower()
+    return low in ("deleted video", "private video") or low.startswith("deleted ")
 
 
 class YoutubeDataApiCatalogProvider:
@@ -82,7 +87,8 @@ class YoutubeDataApiCatalogProvider:
             d = self._get("playlistItems", p)
             for it in d.get("items") or []:
                 vid = (it.get("contentDetails") or {}).get("videoId") or ""
-                if vid and "eleted" not in str((it.get("snippet") or {}).get("title")):
+                title = str((it.get("snippet") or {}).get("title") or "")
+                if vid and not _is_unavailable_title(title):
                     ids.append(vid)
             token = d.get("nextPageToken")
             if not token:

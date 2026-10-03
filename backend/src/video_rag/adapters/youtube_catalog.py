@@ -23,23 +23,19 @@ def build_target_url(parsed: dict) -> str:
     if kind == "channel":
         # Preserve @handle / /channel/ / /c/ / /user/ exactly; yt-dlp 404s otherwise.
         base = src.split("?")[0].rstrip("/")
-        if (
-            any(base.endswith(t) or f"{t}/" in src for t in _TABS)
-            or "/@" in base
-            or "/channel/" in base
-        ):
-            if any(base.endswith(t) for t in _TABS):
-                return base
-            if "/@" in base or "/channel/" in base or "/c/" in base or "/user/" in base:
-                return base if any(base.endswith(t) for t in _TABS) else base + "/videos"
+        if any(base.endswith(t) for t in _TABS):
+            return base
         return base + "/videos"
     return src
 
 
 class YtDlpCatalogProvider:
     def __init__(self, max_videos: int = 500, timeout: float = 30.0):
+        import logging
+
         self.max_videos = max_videos
         self.timeout = timeout
+        self.log = logging.getLogger(__name__)
 
     def expand(self, parsed_url: dict) -> tuple[dict, list[VideoJob]]:
         try:
@@ -66,8 +62,10 @@ class YtDlpCatalogProvider:
             entries = [info]
         jobs: list[VideoJob] = []
         title = info.get("title") or target
+        skipped = 0
         for pos, e in enumerate(entries[: self.max_videos]):
             if not e or not e.get("id"):
+                skipped += 1
                 continue
             jobs.append(
                 VideoJob(
@@ -80,4 +78,6 @@ class YtDlpCatalogProvider:
             )
         if not jobs:
             raise CatalogUnavailableError("URL returned no usable metadata")
-        return {"title": title, "source_url": target}, jobs
+        if skipped:
+            self.log.info("catalog skipped %d unavailable entries for %s", skipped, target)
+        return {"title": title, "source_url": target, "skipped": skipped}, jobs

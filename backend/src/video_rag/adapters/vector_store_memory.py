@@ -11,29 +11,49 @@ from ..core.ranking import lexical_score
 
 class MemoryVectorStore:
     def __init__(self, path: str | Path = "data/memory_store.json"):
+        import logging
+
         self.path = Path(path)
         self.items: list[dict] = []
+        self.log = logging.getLogger(__name__)
         if self.path.exists():
             try:
                 self.items = json.loads(self.path.read_text(encoding="utf-8"))
-            except Exception:
+            except Exception as e:
+                try:
+                    bak = self.path.with_suffix(".corrupt.bak")
+                    self.path.rename(bak)
+                except Exception:
+                    pass
+                self.log.warning("memory store corrupt, starting empty: %s", e)
                 self.items = []
 
     def _save(self) -> None:
+        import os
+        import tempfile
+
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self.items), encoding="utf-8")
+        fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), prefix=".store-")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(self.items, f)
+            os.replace(tmp, self.path)
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except Exception:
+                pass
+            raise
 
     def upsert(self, course_id: str, chunks: list[Chunk], vectors: list[list[float]]) -> int:
-        for c, v in zip(chunks, vectors):
+        drop = {(course_id, c.video_id, c.start_sec) for c in chunks}
+        if drop:
             self.items = [
                 i
                 for i in self.items
-                if not (
-                    i["course_id"] == course_id
-                    and i["video_id"] == c.video_id
-                    and i["start_sec"] == c.start_sec
-                )
+                if (i["course_id"], i["video_id"], i["start_sec"]) not in drop
             ]
+        for c, v in zip(chunks, vectors):
             self.items.append(
                 {
                     "course_id": course_id,

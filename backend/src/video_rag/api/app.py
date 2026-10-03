@@ -26,11 +26,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.container = build_container(settings)
     app.include_router(router)
+    if settings.cors_origins:
+        from fastapi.middleware.cors import CORSMiddleware
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(settings.cors_origins),
+            allow_methods=["GET", "POST"],
+            allow_headers=["X-API-Key", "Content-Type"],
+        )
+    _hits: dict[str, list[float]] = {}
 
     @app.middleware("http")
     async def add_id(request: Request, call_next):
         rid = uuid.uuid4().hex[:8]
-        start = time.time()
+        # Minimal per-IP sliding-window rate limit (no extra deps).
+        if settings.rate_limit_per_minute > 0 and request.url.path.startswith(
+            ("/ask", "/ingest", "/translate")
+        ):
+            now = time.time()
+            ip = request.client.host if request.client else "anon"
+            window = _hits.setdefault(ip, [])
+            window[:] = [t for t in window if now - t < 60.0]
+            if len(window) >= settings.rate_limit_per_minute:
+                from fastapi.responses import JSONResponse
+
+                return JSONResponse({"code": "rate_limited", "message": "slow down"}, status_code=429)
+            window.append(now)
         response = await call_next(request)
         response.headers["X-Request-ID"] = rid
         response.headers["X-Content-Type-Options"] = "nosniff"

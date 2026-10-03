@@ -6,12 +6,15 @@ from fastapi import Header, HTTPException
 
 
 def check_key(settings, x_api_key: str | None) -> None:
+    import hmac
+
     if not settings.api_keys:
         if settings.environment == "production" and not settings.allow_anonymous:
             raise HTTPException(500, "server misconfigured")
         return
-    if x_api_key and x_api_key in settings.api_keys:
-        return
+    for valid in settings.api_keys:
+        if x_api_key and hmac.compare_digest(x_api_key, valid):
+            return
     raise HTTPException(401, "invalid API key")
 
 

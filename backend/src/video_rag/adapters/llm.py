@@ -72,7 +72,7 @@ class LanguageModel:
                     "temperature": 0.2,
                     "stream": True,
                 },
-                timeout=90,
+                timeout=self.timeout,
             ) as r:
                 r.raise_for_status()
                 for line in r.iter_lines():

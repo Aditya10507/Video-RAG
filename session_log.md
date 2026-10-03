@@ -309,3 +309,42 @@
 - **Frontend — `index.html`, `app.js`, `styles.css`:** Added an accessible language selector, translate icon, and status/error display. The existing answer is retained as the translation source, citations remain separate, and stale translation responses cannot overwrite a newer answer.
 - **Docs/tests:** Documented the endpoint and request in `README.md`. Added `tests/test_translation_api.py` covering successful translation, shared API-key authentication, blank input and model failure. Updated test totals in README and architecture/explanation/interview docs.
 - **Verification:** Full pytest suite **47 passed**; `node --check frontend/app.js` passed; Ruff `--select E,F --ignore E501` passed for the changed translation backend files. One third-party Starlette/httpx `TestClient` deprecation warning remains.
+
+## 4. Bug-fix batch — 27 verified failures fixed, no feature loss
+
+- **Scope:** Re-verified the 54-item bug list line-by-line against code. 27 confirmed as live failures (section A), rest downgraded to smells or admitted as misreads (rank breadth, ask/stream drift, fusion runtime effect, shorts IndexError mechanism, sleep event-loop claim, JobStore race). Only section-A items fixed below; behavior otherwise preserved.
+- **Phase 1 URL (`core/url_parsing.py`):** `_is_host()` exact-or-suffix check (`notyoutube.com` now rejected); `_require()` rejects empty `youtu.be/`, `/shorts/` no-ID, `/watch` no `v/list`, empty `list=`. `course_id_for()` format untouched to avoid orphaning data.
+- **Phase 2 Ingestion:** `ingest/service.py` empty-chunk videos now `failed/empty transcript` (was inflated `indexed`); registry `set_course_status` + final `count_chunks` via `to_thread` with safe fallback. `sqlite_registry.py` `link_video_to_course` upserts position, all ops `try/finally` + `WAL` + 30s timeout. `youtube_catalog.py` simplified channel `base+"/videos"`, logs `skipped` unavailable entries. `youtube_data_api.py` ISO adds `W` weeks, `_is_unavailable_title()` replaces `"eleted"` substring. `youtube_captions.py` preserves `human/auto_captions` via `is_generated`, no sleep on last retry. `transcript_cleaning.py` `words_with_times` nil-safe.
+- **Phase 3 Retrieval:** `ask/service.py` `_verify_explanation` fail-closed (`False`→`partial`, was fail-open `True`→answered); dedupe key rounded to 3 decimals. `reranker.py` logs warning before lexical fallback. `embeddings.py` 3-attempt retry with backoff for 429/502/503/504. `vector_store_qdrant.py` `VECTOR_SIZE=1024` init check + upsert dim guard, `search_keyword` paginated to 5000 (was 500 truncate). `container.py` rejects unknown `VECTOR_BACKEND`, `HashingEmbedder(dim=embedding_dimension)` so dim matches Qdrant. `llm.py` `stream_complete` uses `self.timeout` (was hardcoded 90).
+- **Phase 4 Storage:** `vector_store_memory.py` atomic save (tmp+`os.replace`), corrupt file backed up to `.corrupt.bak`, `upsert` single-pass O(n+m). `sqlite_registry.py` `__init__` safe close. `vector_store_qdrant.py` `_to_chunk` reads both `start_seconds/start_sec` for backward compat.
+- **Phase 5 API/Ops:** `api/routes.py` `GET /jobs/{id}/stream` now authed (header or `?api_key=` for EventSource); `GET /courses` uses new `list_all_course_videos()` single query (no N+1). `api/jobs.py` `_purge()` on create. `api/security.py` `hmac.compare_digest`. `api/app.py` CORS only if configured + minimal per-IP sliding-window limit for `/ask//ingest//translate` (429 `rate_limited`). `config.py` validates `0<=LOW<=HIGH<=1`, positive top_k/dims/timeouts.
+- **Deliberately not changed:** `ytdlp_subtitles` parser (still unconfigured, now honest), eval harness stub, frontend rewrite, `course_id_for` format, `ScoredChunk/Citation` models.
+- **Verification:** `pytest backend/tests` **47 passed** after each phase; `cli smoke` PASSED. No new tests added; existing offline-fake suite still covers URL/chunking/coverage/timestamps/ask/library/registry/translate.
+
+---
+
+# Session Log — 2026-10-03 (chat interface session)
+
+## 1. Chat threads stored in the backend DB (single thread per course)
+
+- **Decision (user-confirmed):** 1 video → 1 chat, 1 playlist → 1 chat (`chat_id = course_id`, reusing `course_id_for()`); single thread + Clear (no multi-thread switcher); follow-ups are context-aware via query rewriting; old chats survive re-index; refusals/`not_covered` stored with status badge.
+- **`adapters/sqlite_registry.py`** — new `messages` table (one row per Q&A turn: `course_id, video_id, question, rewritten_question, answer, status, top_score, primary_source_json, also_mentioned_json, created_at`, indexed on `(course_id, created_at)`) + `save_message()` / `list_messages()` / `clear_messages()`. Writes never raise: a failed save can't break an answer.
+- **`ask/service.py`** — `_recent_turns()` (last 3 via registry, try/except), `_needs_rewrite()` (history present AND short/anaphoric: ≤4 words or `FOLLOWUP_HINTS`), `_rewrite_query()` (one small `llm.complete ≤100 tokens`, fallback to original), `_save_turn()`. History is used for **rewriting only**, never as answer context — retrieval/synthesis/citations still run on excerpts, grounding preserved. Both `ask()` and `ask_stream()` rewrite + save (incl. refusals).
+- **`api/routes.py`** — new `GET /courses/{id}/messages?limit=` (capped 500) and `DELETE /courses/{id}/messages`. `POST /ingest` now forwards `force`. `cli.py` ingest gained `--force`.
+- **Verification:** pytest **47 passed**, `cli smoke` PASSED, plus an offline fake-store check: ingest → `skipped:0`, re-ingest → `skipped:1` with no duplicate chunks; ask → 1 saved row; clear → 0 rows.
+
+## 2. Ingest dedup — skip already-indexed videos (saves embedding calls)
+
+- **`ingest/service.py`** — `ingest(..., force=False)`: after catalog expand + register, videos with `store.count_chunks(course_id, video_id) > 0` are skipped (store is truth, not registry; count failures fall through to re-index). Job progress still bumps per skip. Report gains `skipped`; `requested` still reflects the original total. `force=true` (checkbox/API/CLI) re-indexes everything (e.g. after a pipeline bump). Pasting an indexed link returns immediately and the frontend reopens its previous chat.
+
+## 3. Chatbot UI — single chat panel, drag-resize, no button chrome
+
+- **Round 1:** replaced the separate "Ask a question" box with one chat panel (header, scope label, thread, typing dots, pill input + send, disclaimer); bubbles user-right/blue, assistant-left/white with badge + timestamp link seeking the left player; optimistic user bubble + SSE streaming into the bubble; Clear top-right; fullscreen overlay with recent list.
+- **Round 2 (senior-frontend pass, per feedback):** deleted the overlay, expand/collapse buttons, `+ New chat` (mislabeled clear), `⋮` menu, and the static `U`/`[User name]` placeholder — every visible control now maps to a real endpoint. Chat expands by **stretching its left border** (`#chat-resizer`, same pointer-capture pattern as the sidebar resizer, persisted as `video-rag.chat-width`, 340px min, screen-limited max, double-click toggles default ↔ widest); panel is `height: calc(100vh - 140px)` sticky so it fits the screen; resizer hides on the stacked ≤1020px layout. Removed the stale duplicate `.home-grid` block it would have overridden.
+- **Verification:** `node --check` clean, zero `overlay/expand/New chat` references, pytest **47 passed**.
+
+## 4. Bug-fix batch — duplicated question + lost translation UI
+
+- **Duplicated user message:** `handleAsk` appended the user bubble optimistically, then `appendChatTurn(result)` appended it again. Replaced with `appendAssistantTurn()` (assistant side only); `appendChatTurn` deleted. History rendering was already correct.
+- **Translation re-wired per answer:** the 2026-10-03 `POST /translate` feature survived in the backend but the bubble redesign left it with no visible control. Every generated answer bubble now carries the translate icon (same SVG/language list); click toggles an inline picker that translates from the stored original (never chained), restores the original on placeholder re-select, and drops stale responses via a per-bubble token. Refusals with no answer text get no icon. Citations untouched.
+- **Verification:** `node --check` clean, pytest **47 passed**.
