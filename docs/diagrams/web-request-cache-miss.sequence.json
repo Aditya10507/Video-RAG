@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Web Request with Redis Cache Miss",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [1080, 560]
+  },
+  "participants": [
+    { "id": "browser", "type": "external", "label": "Browser", "sublabel": "user session" },
+    { "id": "api", "type": "backend", "label": "API", "sublabel": "request handler" },
+    { "id": "redis", "type": "database", "label": "Redis", "sublabel": "cache" },
+    { "id": "postgres", "type": "database", "label": "PostgreSQL", "sublabel": "source of truth" }
+  ],
+  "segments": [
+    { "from": 150, "to": 235, "label": "Request" },
+    { "from": 243, "to": 300, "label": "Cache miss + fallback" },
+    { "from": 308, "to": 365, "label": "Fill cache + respond" }
+  ],
+  "messages": [
+    { "id": "get-profile", "from": "browser", "to": "api", "y": 165, "label": "GET /profile", "variant": "emphasis" },
+    { "id": "cache-lookup", "from": "api", "to": "redis", "y": 195, "label": "GET profile:key", "variant": "default" },
+    { "id": "cache-miss", "from": "redis", "to": "api", "y": 224, "label": "miss", "variant": "return" },
+    { "id": "db-query", "from": "api", "to": "postgres", "y": 255, "label": "SELECT profile", "variant": "emphasis" },
+    { "id": "db-rows", "from": "postgres", "to": "api", "y": 283, "label": "rows", "variant": "return" },
+    { "id": "cache-fill", "from": "api", "to": "redis", "y": 318, "label": "SET profile:key + TTL", "variant": "dashed" },
+    { "id": "http-response", "from": "api", "to": "browser", "y": 345, "label": "200 JSON", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "browser", "from": 160, "to": 351, "type": "external" },
+    { "participant": "api", "from": 165, "to": 351, "type": "backend" },
+    { "participant": "redis", "from": 190, "to": 228, "type": "database" },
+    { "participant": "postgres", "from": 250, "to": 289, "type": "database" },
+    { "participant": "redis", "from": 313, "to": 330, "type": "database" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Miss path",
+      "items": [
+        "Browser -> API -> Redis miss -> PostgreSQL -> fill cache -> respond",
+        "The database is reached only after the cache miss",
+        "Return arrows stay quieter than forward calls"
+      ]
+    },
+    {
+      "dot": "orange",
+      "title": "Hit path (not shown)",
+      "items": [
+        "On a cache hit Redis returns the value at the miss step",
+        "PostgreSQL and the cache fill are then skipped entirely"
+      ]
+    }
+  ]
+}

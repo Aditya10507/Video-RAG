@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Video RAG - ask your course</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+  <div id="app-shell">
+    <!-- Sidebar: navigation only. Home is the working page, Library is the
+         picker page. Columns for each view live in the main area. -->
+    <aside id="sidebar" aria-label="Sidebar">
+      <div class="sidebar-head">
+        <span class="sidebar-title">Menu</span>
+        <button id="sidebar-collapse" type="button" class="icon-button" aria-label="Collapse sidebar"
+          aria-controls="sidebar" title="Collapse sidebar">&#171;</button>
+      </div>
+      <nav class="sidebar-body" aria-label="Sections">
+        <ul class="side-nav">
+          <li>
+            <button id="nav-home" type="button" class="side-link is-active" aria-current="page">
+              <span class="side-icon" aria-hidden="true">&#9000;</span>
+              <span>Home</span>
+            </button>
+          </li>
+          <li>
+            <button id="nav-library" type="button" class="side-link">
+              <span class="side-icon" aria-hidden="true">&#9783;</span>
+              <span>Library</span>
+            </button>
+          </li>
+        </ul>
+      </nav>
+      <div id="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize sidebar"
+        title="Drag to resize"></div>
+    </aside>
+
+    <div class="shell-main">
+      <button id="sidebar-expand" type="button" class="icon-button sidebar-expand" aria-label="Expand sidebar"
+        aria-controls="sidebar" title="Expand sidebar" hidden>&#187;</button>
+      <!-- Header: product name plus the two pieces of live state a user cares
+           about, the API health and an optional API key. -->
+      <header class="topbar">
+        <div>
+          <h1>Video RAG</h1>
+        </div>
+      </header>
+
+      <!-- HOME VIEW: vertical two-column workflow. Left = index, then the
+           video and its timestamps. Right = ask, then the answer text. -->
+      <main id="view-home">
+        <div class="home-grid">
+          <div class="home-left">
+            <section class="card">
+              <h2>1. Index a course</h2>
+
+              <form id="ingest-form" class="row">
+                <input id="ingest-url" type="url" required
+                  placeholder="https://www.youtube.com/playlist?list=PLxxxxxxxx" />
+                <button id="ingest-button" type="submit">Index</button>
+              </form>
+
+              <label class="checkbox">
+                <input id="ingest-force" type="checkbox" /> Re-index videos that are already stored
+              </label>
+
+              <p id="ingest-status" class="status" hidden></p>
+
+              <div id="progress" class="progress" hidden>
+                <div id="progress-bar" class="progress-bar"></div>
+              </div>
+            </section>
+
+            <!-- Results land here, below the index card: timestamps first,
+                 then the player. Shown only when an answer arrives. -->
+            <section id="watch-card" class="card" hidden>
+              <div id="sources" hidden>
+                <h3>Watch the explanation</h3>
+                <div id="primary-source"></div>
+
+                <h3 id="secondary-title" hidden>Also mentioned in</h3>
+                <div id="secondary-sources" class="chips"></div>
+              </div>
+
+              <!-- Shown on a refusal: proves the answer was a decision, not a failure. -->
+              <div id="covers" hidden>
+                <h3>What this course does cover</h3>
+                <ul id="covers-list"></ul>
+              </div>
+
+              <div id="player" hidden>
+                <iframe id="player-frame" title="Course video" allowfullscreen
+                  allow="accelerometer; autoplay; encrypted-media; picture-in-picture"></iframe>
+                <p id="player-caption" class="hint"></p>
+              </div>
+            </section>
+          </div>
+
+          <div class="home-right">
+            <!-- Revealed after the first chunks land, so a new user meets the
+                 index step first and the ask step second. -->
+            <section id="ask-col" class="card" hidden>
+              <h2>2. Ask a question</h2>
+
+              <form id="ask-form">
+                <div class="row">
+                  <input id="course-id" list="known-courses" required
+                    placeholder="Course id, for example PLxxxxxxxx" />
+                  <datalist id="known-courses"></datalist>
+                </div>
+                <div class="row">
+                  <input id="video-id" list="known-videos" placeholder="Video id (optional - one video only)" />
+                  <datalist id="known-videos"></datalist>
+                </div>
+                <div class="row">
+                  <input id="question" required maxlength="500" placeholder="where can we use hashmaps" />
+                  <button id="ask-button" type="submit">Ask</button>
+                </div>
+              </form>
+
+              <p id="ask-status" class="status" hidden></p>
+            </section>
+
+            <section id="answer-card" class="card" hidden>
+              <div class="answer-head">
+                <h2>Answer</h2>
+                <span id="answer-badge" class="badge"></span>
+                <span id="answer-score" class="score"></span>
+                <div id="translation-tools" class="translation-tools" hidden>
+                  <select id="translation-language" aria-label="Translation language">
+                    <option value="">Translate to...</option>
+                    <option value="English">English</option>
+                    <option value="Hindi">Hindi</option>
+                    <option value="Spanish">Spanish</option>
+                    <option value="French">French</option>
+                    <option value="German">German</option>
+                    <option value="Portuguese">Portuguese</option>
+                    <option value="Arabic">Arabic</option>
+                    <option value="Japanese">Japanese</option>
+                    <option value="Chinese">Chinese</option>
+                  </select>
+                  <button id="translate-button" class="translate-button" type="button"
+                          aria-label="Translate answer with AI" title="Translate answer with AI"
+                          disabled>
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                      <path d="M12.87 15.07 10.33 12.56l.03-.03a17.52 17.52 0 0 0 3.71-6.3H17V4h-7V2H8v2H1v2h11.17a15.62 15.62 0 0 1-3 4.92A15.7 15.7 0 0 1 7 7H5a17.7 17.7 0 0 0 2.83 5.33L2.5 17.58 3.92 19l5.25-5.25 3.27 3.27.43-1.95ZM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12Zm-2.62 7 1.62-4.33L19.12 17h-3.24Z"></path>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <p id="answer-message" class="message"></p>
+              <p id="answer-text" class="answer-text"></p>
+              <p id="translation-status" class="status" role="status" aria-live="polite" hidden></p>
+            </section>
+          </div>
+        </div>
+      </main>
+
+      <!-- LIBRARY VIEW: already indexed courses as a list. Expanding a course
+           lists its videos; Ask jumps back home with the selection applied. -->
+      <main id="view-library" hidden>
+        <section class="card">
+          <h2>Library — already indexed</h2>
+          <p class="hint">Everything stored in the database. Expand a course to see its videos, then press Ask to
+            search that selection from Home.</p>
+
+          <div class="row">
+            <button id="library-refresh" type="button">Refresh library</button>
+          </div>
+
+          <p id="library-status" class="status" hidden></p>
+          <ul id="library-list" class="lib-list"></ul>
+        </section>
+      </main>
+
+      <footer>
+        <p>Every answer carries a video and a timestamp, or the course is reported as not covering the topic.</p>
+      </footer>
+    </div><!-- /.shell-main -->
+  </div><!-- /#app-shell -->
+
+  <script src="app.js"></script>
+</body>
+
+</html>

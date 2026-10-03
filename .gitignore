@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets: never commit real credentials
+.env
+.env.*
+!.env.example
+
+# Local data: registry, vectors, cached audio, logs
+data/
+qdrant_data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Editors and operating system files
+.idea/
+.vscode/
+.DS_Store

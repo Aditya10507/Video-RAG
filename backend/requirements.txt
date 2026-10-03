@@ -1,0 +1,26 @@
+# Runtime dependencies.
+#
+# Versions are pinned with a lower bound and an upper bound on the major
+# version, so a fresh install is reproducible enough for a deployment while
+# still receiving patch releases.
+#
+# The default configuration (memory vector store, Jina embeddings, lexical
+# reranker) runs with only the core group installed.
+
+# --- Core: API, configuration and validation --------------------------------
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.32,<1.0
+pydantic>=2.9,<3.0
+python-dotenv>=1.0,<2.0
+httpx>=0.27,<1.0
+
+# --- Ingestion: playlist listing and existing captions ----------------------
+yt-dlp>=2024.8.6
+youtube-transcript-api>=0.6.2,<2.0
+
+# --- Retrieval: production vector store -------------------------------------
+# Only required when VIDEO_RAG_VECTOR_BACKEND=qdrant.
+qdrant-client>=1.12,<2.0
+
+# --- Optional: punctuation restoration for automatic captions ---------------
+# deepmultilingualpunctuation>=1.0.1,<2.0

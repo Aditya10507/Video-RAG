@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video-rag"
+version = "0.1.0"
+description = "Closed-domain RAG over video courses with timestamped citations"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+# Base install runs the API, the CLI and the offline fallback adapters.
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.30,<1.0",
+    "pydantic>=2.7,<3.0",
+    "python-dotenv>=1.0,<2.0",
+    "httpx>=0.27,<1.0",
+    "yt-dlp>=2024.8.6",
+    "youtube-transcript-api>=1.0,<2.0",
+]
+
+[project.optional-dependencies]
+# Production vector store. Kept optional so the core package stays light and
+# CI runs offline. (Embeddings are the Jina hosted API; reranking is lexical;
+# no local model anywhere.)
+retrieval = [
+    "qdrant-client>=1.9,<2.0",
+]
+# Punctuation restoration for automatic captions.
+punctuation = [
+    "deepmultilingualpunctuation>=1.0,<2.0",
+]
+dev = [
+    "pytest>=8.0,<9.0",
+    "ruff>=0.6,<1.0",
+    "mypy>=1.11,<2.0",
+]
+
+[project.scripts]
+video-rag = "video_rag.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "RET", "SIM"]
+# S101 allows plain asserts inside the test suite.
+ignore = ["S101"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+ignore_missing_imports = true
+files = ["src"]
