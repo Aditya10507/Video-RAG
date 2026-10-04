@@ -50,7 +50,6 @@ video-rag/
     TROUBLESHOOTING.md  common errors and their fixes
     DEPLOY.md         how to deploy
     INTERVIEW.md      how to present this project
-    diagrams/         exported diagrams (PNG plus interactive HTML and spec)
   .env.example        every setting with comments; copy to .env
   .gitignore          keeps secrets and local data out of git
   README.md           this file
@@ -123,20 +122,6 @@ VIDEO_RAG_FRONTEND_DIR=frontend PYTHONPATH=backend/src .venv/bin/python -m video
 
 The refusal is a rule in code, not a request to a model, which is what makes it
 reliable. `docs/ARCHITECTURE.md` has the diagrams and the reasoning.
-
-## Diagrams
-
-Example request flow, generated with Archify from a typed JSON spec
-(`docs/diagrams/web-request-cache-miss.sequence.json`):
-
-![Web request with Redis cache miss](docs/diagrams/web-request-cache-miss.png)
-
-Browser calls the API, the API checks Redis, and on a cache miss PostgreSQL
-is queried and the cache is filled before responding. The interactive version
-with pan/zoom, themes and export is in
-[`docs/diagrams/web-request-cache-miss.html`](docs/diagrams/web-request-cache-miss.html) —
-GitHub renders the PNG above inline; open the HTML locally (or via GitHub
-Pages) for the interactive diagram.
 
 ## HTTP API
 
