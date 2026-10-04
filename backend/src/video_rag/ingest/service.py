@@ -122,7 +122,8 @@ class IngestService:
                         _mark(job.video_id, "indexed")
                 except Exception as e:
                     failed += 1
-                    _mark(job.video_id, "failed", str(e)[:200])
+                    log.error("ingest failed for video %s: %s", job.video_id, e)
+                    _mark(job.video_id, "failed", str(e)[:500])
                 if job_store and job_id:
                     job_store.bump(job_id)
 

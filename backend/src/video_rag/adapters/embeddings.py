@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 import httpx
 
 from ..errors import EmbeddingError
+
+log = logging.getLogger(__name__)
 
 
 class JinaEmbedder:
@@ -40,10 +44,31 @@ class JinaEmbedder:
                 if r.status_code in (429, 502, 503, 504) and attempt < 2:
                     time.sleep(1.0 * (attempt + 1))
                     continue
+                if r.status_code == 400:
+                    # 400 is a validation error: retrying the same payload
+                    # can never succeed. Surface Jina's body (it names the
+                    # bad field: empty input, too-long input, bad model/task).
+                    body = (r.text or "")[:500]
+                    log.error("jina embeddings rejected (400): %s", body)
+                    raise EmbeddingError(f"embedding rejected (400): {body}")
                 r.raise_for_status()
                 return [d["embedding"] for d in r.json()["data"]]
             except EmbeddingError:
                 raise
+            except httpx.HTTPStatusError as e:
+                body = ""
+                try:
+                    body = (e.response.text or "")[:500] if e.response is not None else ""
+                except Exception:
+                    body = ""
+                if e.response is not None and e.response.status_code == 400:
+                    log.error("jina embeddings rejected (400): %s", body)
+                    raise EmbeddingError(f"embedding rejected (400): {body}") from e
+                last = e
+                if attempt < 2:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                raise EmbeddingError(f"embedding failed: {e} body={body}") from e
             except Exception as e:
                 last = e
                 if attempt < 2:
