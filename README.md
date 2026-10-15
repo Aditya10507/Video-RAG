@@ -1,3 +1,9 @@
+
+# DEMO VIDEO 
+https://github.com/user-attachments/assets/08c7bd36-4dec-46e4-ab7d-d90318545c54
+# EVALUATION VIDEO
+https://github.com/user-attachments/assets/325b0ae6-4491-4388-bee1-2d83d4ec2d70
+
 # Video RAG for course playlists
 
 Ask a question about a video course and get a written answer plus the exact
