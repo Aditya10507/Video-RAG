@@ -22,5 +22,8 @@ youtube-transcript-api>=0.6.2,<2.0
 # Only required when VIDEO_RAG_VECTOR_BACKEND=qdrant.
 qdrant-client>=1.12,<2.0
 
+# --- Evaluation: run config files -------------------------------------------
+pyyaml>=6.0,<7.0
+
 # --- Optional: punctuation restoration for automatic captions ---------------
 # deepmultilingualpunctuation>=1.0.1,<2.0

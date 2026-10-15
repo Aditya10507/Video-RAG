@@ -12,13 +12,18 @@ import test_answer_language
 import test_ask_service
 import test_chunking
 import test_coverage
+import test_eval_api
+import test_eval_phase1
+import test_eval_phase2
+import test_eval_phase3
 import test_ingest_registry
 import test_library
 import test_timestamps
 import test_url_parsing
 
 mods = [test_url_parsing, test_chunking, test_coverage, test_answer_language,
-        test_ask_service, test_library, test_ingest_registry, test_timestamps]
+        test_ask_service, test_library, test_ingest_registry, test_timestamps,
+        test_eval_phase1, test_eval_phase2, test_eval_phase3, test_eval_api]
 passed = failed = 0
 for m in mods:
     for name in dir(m):

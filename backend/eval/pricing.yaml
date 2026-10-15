@@ -1,0 +1,3 @@
+# Token prices in USD per 1k tokens. Empty until you fill your models in;
+# questions scored without a price entry get cost_usd = NULL (never zero).
+models: {}

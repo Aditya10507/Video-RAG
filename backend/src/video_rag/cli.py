@@ -1,10 +1,11 @@
-"""Command line entry point: smoke, serve, ingest, ask, config."""
+"""Command line entry point: smoke, serve, ingest, ask, config, eval-*."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
 import json
+from pathlib import Path
 
 from .config import from_env, masked_dict
 
@@ -134,6 +135,69 @@ def cmd_ingest(args) -> int:
     return 0
 
 
+def _eval_cfg() -> dict:
+    import yaml
+
+    path = Path(__file__).resolve().parents[3] / "backend" / "eval" / "eval.yaml"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def _pricing() -> dict:
+    import yaml
+
+    path = Path(__file__).resolve().parents[3] / "backend" / "eval" / "pricing.yaml"
+    return (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("models", {})
+
+
+def cmd_eval_validate(args) -> int:
+    from .eval import datasets
+
+    rows, errors = datasets.load(args.file)
+    if errors:
+        print("INVALID:")
+        print("\n".join(errors))
+        return 1
+    print(f"valid: {len(rows)} questions, hash {datasets.file_hash(Path(args.file))}")
+    return 0
+
+
+def cmd_eval_run(args) -> int:
+    from .api.app import create_app
+    from .eval.runner import run_dataset
+
+    settings = from_env()
+    app = create_app(settings)
+    c = app.state.container
+    overrides = dict(kv.split("=", 1) for kv in (args.override or []))
+    if "top_k" in overrides:
+        overrides["top_k"] = int(overrides["top_k"])
+    run_id = run_dataset(
+        settings,
+        {"embedder": c.embedder, "store": c.store, "reranker": c.reranker, "llm": c.llm},
+        args.dataset,
+        args.label or Path(args.dataset).name,
+        args.split,
+        overrides,
+        str(Path(settings.data_dir) / "eval.db"),
+        _eval_cfg(),
+        course_default=args.course,
+        pricing=_pricing(),
+    )
+    print(json.dumps({"run_id": run_id}))
+    return 0
+
+
+def cmd_eval_rescore(args) -> int:
+    from .eval.runner import rescore_run
+
+    settings = from_env()
+    scored, errors = rescore_run(
+        str(Path(settings.data_dir) / "eval.db"), args.run, settings, _eval_cfg()
+    )
+    print(json.dumps({"scored": scored, "errors": errors}))
+    return 0
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="video-rag")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -148,6 +212,16 @@ def main() -> None:
     g = sub.add_parser("ingest")
     g.add_argument("url")
     g.add_argument("--force", action="store_true")
+    v = sub.add_parser("eval-validate")
+    v.add_argument("file")
+    r = sub.add_parser("eval-run")
+    r.add_argument("--dataset", required=True)
+    r.add_argument("--label", default=None)
+    r.add_argument("--split", default=None)
+    r.add_argument("--course", default=None)
+    r.add_argument("--override", action="append", default=[])
+    s = sub.add_parser("eval-rescore")
+    s.add_argument("--run", required=True)
     args = p.parse_args()
     raise SystemExit(
         {
@@ -156,6 +230,9 @@ def main() -> None:
             "config": cmd_config,
             "ask": cmd_ask,
             "ingest": cmd_ingest,
+            "eval-validate": cmd_eval_validate,
+            "eval-run": cmd_eval_run,
+            "eval-rescore": cmd_eval_rescore,
         }[args.cmd](args)
     )
 

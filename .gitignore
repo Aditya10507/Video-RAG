@@ -32,3 +32,12 @@ qdrant_data/
 .idea/
 .vscode/
 .DS_Store
+
+# Eval working docs: agent briefs, discovery notes and local verification
+# records. Kept in the working tree, never pushed.
+docs/AGENT_PROMPT.md
+docs/IMPLEMENTATION_GUIDE.md
+docs/rag_eval_dashboard.png
+docs/DISCOVERY.md
+docs/VERIFY.md
+DECISIONS.md

@@ -1,0 +1,11 @@
+You check how directly an answer addresses its question. Ignore whether the
+answer is correct; rate relevance only.
+
+QUESTION:
+{question}
+
+ANSWER:
+{answer}
+
+Return ONLY this JSON: {{"score": <integer 0 to 4>, "reasoning": "<one sentence>"}}
+0 = refuses or fully off-topic, 4 = answers exactly what was asked.

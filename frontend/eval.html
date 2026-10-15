@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Video RAG - offline evaluation</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* Eval-only layout, scoped under #eval-page. */
+    #eval-page { max-width: 1180px; margin: 0 auto; padding: 0 20px 48px;
+      display: flex; flex-direction: column; gap: 16px; }
+    #eval-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    #eval-head select, #eval-head input { font: inherit; padding: 7px 10px;
+      border-radius: 8px; border: 1px solid var(--line);
+      background: var(--card); color: var(--ink); }
+    #eval-run-btn { font: inherit; font-weight: 700; padding: 8px 20px;
+      border-radius: 999px; border: 1px solid var(--line);
+      background: var(--accent); color: #fff; cursor: pointer; }
+    #eval-run-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    #eval-cancel-btn { font: inherit; padding: 8px 18px; border-radius: 999px;
+      border: 1px solid var(--line); background: var(--card); color: var(--ink);
+      cursor: pointer; }
+    #eval-live { font-size: 13px; color: var(--muted); }
+    .eval-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    .eval-tiles .card { min-height: 150px; }
+    .eval-big { font-size: 34px; font-weight: 800; margin: 6px 0 2px;
+      font-variant-numeric: tabular-nums; }
+    .eval-delta { font-size: 13px; font-weight: 700; }
+    .eval-delta.up { color: var(--ok); } .eval-delta.down { color: var(--refuse); }
+    .eval-delta.flat { color: var(--muted); }
+    .eval-meter { height: 6px; border-radius: 4px; background: var(--line);
+      margin-top: 8px; position: relative; overflow: visible; }
+    .eval-meter > span { display: block; height: 100%; background: var(--accent);
+      border-radius: 4px; }
+    .eval-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); }
+    .eval-target { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .eval-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .eval-table th, .eval-table td { text-align: left; padding: 7px 8px;
+      border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+    .eval-table th { color: var(--muted); font-weight: 600; }
+    .eval-group { color: var(--muted); font-size: 12px; text-transform: uppercase;
+      letter-spacing: 0.05em; padding-top: 12px !important; }
+    .pill { display: inline-block; font-size: 12px; font-weight: 700;
+      padding: 2px 10px; border-radius: 20px; }
+    .pill-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+    .pill-bad { color: var(--refuse); background: color-mix(in srgb, var(--refuse) 12%, transparent); }
+    .pill-none { color: var(--muted); border: 1px solid var(--line); }
+    .eval-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .bar-row { display: grid; grid-template-columns: 170px 1fr 52px; gap: 10px;
+      align-items: center; margin-top: 10px; font-size: 14px; }
+    .bar-track { height: 10px; border-radius: 5px; background: var(--line);
+      position: relative; }
+    .bar-fill { height: 100%; border-radius: 5px; background: var(--accent); }
+    .bar-val { text-align: right; font-variant-numeric: tabular-nums; }
+    .qrow { width: 100%; text-align: left; font: inherit; background: none;
+      border: none; border-bottom: 1px solid var(--line); padding: 10px 4px;
+      cursor: pointer; display: grid;
+      grid-template-columns: 1fr 150px 60px 60px; gap: 8px; align-items: center; }
+    .qrow:hover { background: var(--page); }
+    .cause-tag { font-size: 12px; padding: 2px 8px; border-radius: 12px;
+      background: var(--page); border: 1px solid var(--line); }
+    #eval-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 94vw);
+      background: var(--card); border-left: 1px solid var(--line); z-index: 50;
+      overflow-y: auto; padding: 18px; }
+    #eval-drawer[hidden] { display: none; }
+    .eval-chunk { border: 1px solid var(--line); border-radius: 8px;
+      padding: 8px 10px; margin-top: 8px; font-size: 13px; }
+    .eval-chunk.rel { border-color: var(--ok); }
+    .eval-snippet { user-select: text; margin: 4px 0 0; }
+    .eval-skel { border-radius: 8px; background: var(--line); min-height: 60px;
+      margin-top: 10px; opacity: 0.5; }
+    @media (max-width: 1100px) { .eval-tiles { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 1023px) { .eval-cols { grid-template-columns: 1fr; } }
+    @media (max-width: 640px) { .eval-tiles { grid-template-columns: 1fr; } }
+  </style>
+</head>
+
+<body>
+  <div class="shell-main">
+    <header class="topbar">
+      <div><h1>Video RAG · Offline evaluation</h1></div>
+      <p id="eval-connection" class="status">Connecting…</p>
+    </header>
+
+    <div id="eval-page">
+      <section class="card">
+        <div id="eval-head">
+          <span class="hint" id="eval-run-label">No runs yet</span>
+          <label class="hint" for="eval-run-sel">Run</label>
+          <select id="eval-run-sel"></select>
+          <label class="hint" for="eval-cmp-sel">Compare with</label>
+          <select id="eval-cmp-sel"></select>
+          <a id="eval-csv" class="hint" href="#">Export CSV</a>
+          <button id="eval-run-btn" type="button">Run eval</button>
+          <button id="eval-cancel-btn" type="button" hidden>Cancel run</button>
+          <span id="eval-live" class="hint"></span>
+        </div>
+        <div id="eval-config-chips" class="hint" style="margin-top:8px"></div>
+        <div id="eval-status-strip" class="hint" style="margin-top:8px" hidden></div>
+      </section>
+
+      <section id="eval-empty" class="card" hidden>
+        <h2>No runs yet</h2>
+        <p class="hint">Run your first evaluation to populate this page. Either press
+        <b>Run eval</b> above, or from a terminal:</p>
+        <p><code id="eval-cli-hint">PYTHONPATH=backend\src .\.venv\Scripts\python.exe -m video_rag.cli eval-run --dataset backend\eval\golden_set.jsonl --label first</code></p>
+      </section>
+
+      <section id="eval-tiles" class="eval-tiles"></section>
+
+      <section class="card">
+        <h2>All metrics</h2>
+        <p class="hint">Current run against the comparison run and your targets.</p>
+        <div id="eval-metrics-table"></div>
+      </section>
+
+      <div class="eval-cols">
+        <section class="card">
+          <h2>Answer correctness by question type</h2>
+          <div id="eval-by-type"></div>
+        </section>
+        <section class="card">
+          <h2>Failures by likely cause</h2>
+          <div id="eval-failures"></div>
+        </section>
+      </div>
+
+      <div class="eval-cols">
+        <section class="card">
+          <h2>Trend across runs</h2>
+          <div id="eval-trend"></div>
+          <button id="eval-trend-toggle" type="button" class="hint">View as table</button>
+          <div id="eval-trend-table" hidden></div>
+        </section>
+        <section class="card">
+          <h2>Lowest-scoring questions</h2>
+          <p class="hint">Open a row for the query, retrieved chunks with timestamps, and the answer.</p>
+          <div id="eval-lowest"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <aside id="eval-drawer" hidden aria-label="Question trace">
+    <button id="eval-drawer-close" type="button">Close ×</button>
+    <div id="eval-drawer-body"></div>
+  </aside>
+
+  <script src="eval-lib.js"></script>
+  <script>
+    // Dashboard: REST + SSE (fetch stream, 3s polling fallback). textContent only.
+    (function () {
+      "use strict";
+      var API_BASE = window.location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
+      var API_KEY = "";
+      try { API_KEY = (window.sessionStorage.getItem("video-rag.api-key") || "").trim(); }
+      catch (e) { API_KEY = ""; }
+      var BLUE = "var(--accent)", SERIES = ["#2f6fed", "#e8734a", "#3aa79b", "#e0b400",
+        "#c65df0", "#3f9e4d", "#8a63ff", "#d63a3a"];
+
+      var state = { runId: null, compareId: null, cfg: null, runs: [],
+        lastEventAt: 0, sseOk: false };
+      var $ = function (id) { return document.getElementById(id); };
+      function params() { return new URLSearchParams(window.location.search); }
+      function headers(extra) {
+        var h = extra || {};
+        if (API_KEY) { h["X-API-Key"] = API_KEY; }
+        return h;
+      }
+      async function get(path) {
+        var r = await fetch(API_BASE + path, { headers: headers() });
+        if (!r.ok) { throw new Error("HTTP " + r.status + " " + path); }
+        return r.json();
+      }
+      function fmt(metric, value) {
+        return window.EvalLib.fmtMetric(state.cfg.metrics, metric, value);
+      }
+      function missTip() { return "Not computed or not applicable for this run."; }
+      function show(el, text, tip) {
+        el.textContent = text;
+        if (tip) { el.title = tip; }
+      }
+
+      // ---- header: runs, compare, config chips, status strip ----
+      async function loadRuns() {
+        var body = await get("/api/runs?limit=50");
+        state.runs = body.runs || [];
+        var q = params();
+        state.runId = q.get("run") || (state.runs[0] && state.runs[0].id) || null;
+        var done = state.runs.filter(function (r) { return r.status === "completed"; });
+        var prev = done.filter(function (r) { return r.id !== state.runId; })[0];
+        state.compareId = q.get("compare") || (prev && prev.id) || null;
+        fillSelect($("eval-run-sel"), state.runs, state.runId);
+        fillSelect($("eval-cmp-sel"), state.runs, state.compareId, true);
+        $("eval-csv").href = state.runId
+          ? API_BASE + "/api/runs/" + state.runId + "/export.csv" : "#";
+        var run = state.runs.filter(function (r) { return r.id === state.runId; })[0];
+        if (!run && state.runId) {
+          // Stale ?run= link, or a brand-new run whose row is not listed yet:
+          // fall back instead of crashing on run.label below.
+          state.runId = (state.runs[0] && state.runs[0].id) || null;
+          syncUrl(state.runId, state.compareId);
+          run = state.runs.filter(function (r) { return r.id === state.runId; })[0];
+        }
+        if (!state.runs.length) {
+          $("eval-empty").hidden = false;
+          $("eval-run-label").textContent = "No runs yet";
+          return null;
+        }
+        $("eval-empty").hidden = true;
+        var cfg = (run && run.config) || {};
+        $("eval-run-label").textContent =
+          "Run " + (run.label || run.id.slice(0, 8)) + " · " +
+          (run.n_total || "?") + " questions";
+        $("eval-config-chips").textContent =
+          "Top-k: " + cfg.rerank_top_k + " · Reranker: on · Judge: " +
+          (cfg.judge_model || "off") + (cfg.judge_warning ? " (" + cfg.judge_warning + ")" : "");
+        var strip = $("eval-status-strip");
+        var st = run.display_status || run.status;
+        if (st === "completed") { strip.hidden = true; }
+        else {
+          strip.hidden = false;
+          strip.textContent = "Status: " + st + " · answered " +
+            (run.n_answered || 0) + "/" + (run.n_total || "?") + ", scored " +
+            (run.n_scored || 0) + "/" + (run.n_total || "?") +
+            ". Numbers are partial until the run completes." +
+            (run.error ? " Error: " + run.error : "");
+        }
+        var active = state.runs.some(function (r) {
+          return r.status === "running" || r.status === "queued";
+        });
+        $("eval-run-btn").disabled = active;
+        $("eval-run-btn").title = active ? "A run is already active" : "";
+        var sel = state.runs.filter(function (r) { return r.id === state.runId; })[0];
+        var cancellable = !!sel && (sel.status === "running" || sel.status === "queued");
+        $("eval-cancel-btn").hidden = !cancellable;
+        return run;
+      }
+      function fillSelect(sel, runs, current, allowNone) {
+        while (sel.firstChild) { sel.removeChild(sel.firstChild); }
+        if (allowNone) {
+          var none = document.createElement("option");
+          none.value = ""; none.textContent = "—";
+          sel.appendChild(none);
+        }
+        runs.forEach(function (r) {
+          var o = document.createElement("option");
+          o.value = r.id;
+          o.textContent = (r.label || r.id.slice(0, 8)) + " · " + r.status;
+          sel.appendChild(o);
+        });
+        sel.value = current || "";
+      }
+
+      // ---- tiles + metrics table ----
+      function pill(metric, value) {
+        var st = window.EvalLib.pillState(
+          state.cfg.metrics, state.cfg.targets, metric, value);
+        var span = document.createElement("span");
+        span.className = "pill " + st.cls;
+        span.textContent = st.text;
+        if (st.cls === "pill-none") { span.title = missTip(); }
+        return span;
+      }
+      function deltaEl(metric, delta) {
+        var info = window.EvalLib.deltaInfo(state.cfg.metrics, metric, delta);
+        var s = document.createElement("span");
+        s.className = "eval-delta " + info.cls;
+        s.textContent = info.text;
+        return s;
+      }
+      async function renderTiles(run) {
+        var box = $("eval-tiles");
+        while (box.firstChild) { box.removeChild(box.firstChild); }
+        if (!run) { return; }
+        var detail = await get("/api/runs/" + run.id);
+        var cmp = state.compareId
+          ? await get("/api/runs/" + run.id + "/compare/" + state.compareId).catch(function () { return null; })
+          : null;
+        var metrics = state.cfg.dashboard.headline_metrics || [];
+        metrics.forEach(function (m) {
+          var agg = (detail.aggregates || {})[m] || { value: null, n: 0 };
+          var card = document.createElement("div");
+          card.className = "card";
+          var h = document.createElement("h2");
+          h.textContent = ((state.cfg.metrics[m] || {}).name || m);
+          var big = document.createElement("div");
+          big.className = "eval-big";
+          show(big, fmt(m, agg.value) === null ? "—" : fmt(m, agg.value),
+            agg.value === null ? missTip() : ("n=" + agg.n));
+          card.appendChild(h); card.appendChild(big);
+          var d = cmp && cmp.metrics[m] ? cmp.metrics[m].delta : null;
+          var row = document.createElement("div");
+          row.appendChild(deltaEl(m, d));
+          var vs = document.createElement("span");
+          vs.className = "hint";
+          vs.textContent = state.compareId ? " vs run" : " no comparison run";
+          row.appendChild(vs);
+          card.appendChild(row);
+          var meter = document.createElement("div");
+          meter.className = "eval-meter";
+          var fill = document.createElement("span");
+          fill.style.width = agg.value === null ? "0%"
+            : Math.max(0, Math.min(100, agg.value * 100)) + "%";
+          meter.appendChild(fill);
+          var t = (state.cfg.targets || {})[m];
+          if (t !== null && t !== undefined && (state.cfg.metrics[m] || {}).format !== "usd"
+              && (state.cfg.metrics[m] || {}).format !== "seconds") {
+            var tick = document.createElement("span");
+            tick.className = "eval-tick";
+            tick.style.left = Math.max(0, Math.min(100, t * 100)) + "%";
+            meter.appendChild(tick);
+          }
+          card.appendChild(meter);
+          var tg = document.createElement("div");
+          tg.className = "eval-target";
+          tg.textContent = (t === null || t === undefined) ? "No target set"
+            : "Target " + ((state.cfg.metrics[m] || {}).direction === "lower" ? "≤ " : "≥ ") + fmt(m, t)
+            + " · n=" + agg.n;
+          card.appendChild(tg);
+          box.appendChild(card);
+        });
+        renderTable(detail, cmp);
+      }
+      function renderTable(detail, cmp) {
+        var host = $("eval-metrics-table");
+        while (host.firstChild) { host.removeChild(host.firstChild); }
+        var table = document.createElement("table");
+        table.className = "eval-table";
+        var head = document.createElement("tr");
+        ["Metric", "Run", "Compare", "Change", "Status"].forEach(function (t) {
+          var th = document.createElement("th"); th.textContent = t; head.appendChild(th);
+        });
+        table.appendChild(head);
+        var groups = {};
+        Object.keys(state.cfg.metrics).forEach(function (m) {
+          var g = state.cfg.metrics[m].group || "other";
+          (groups[g] = groups[g] || []).push(m);
+        });
+        ["retrieval", "generation", "video", "system", "other"].forEach(function (g) {
+          (groups[g] || []).forEach(function (m, i) {
+            if (i === 0) {
+              var gr = document.createElement("tr");
+              var gd = document.createElement("td");
+              gd.colSpan = 5; gd.className = "eval-group"; gd.textContent = g;
+              gr.appendChild(gd); table.appendChild(gr);
+            }
+            var agg = (detail.aggregates || {})[m] || { value: null, n: 0 };
+            var c = cmp && cmp.metrics[m] ? cmp.metrics[m] : null;
+            var tr = document.createElement("tr");
+            var name = document.createElement("td");
+            name.textContent = (state.cfg.metrics[m] || {}).name || m;
+            var cur = document.createElement("td");
+            show(cur, fmt(m, agg.value) === null ? "—" : fmt(m, agg.value) + "  (n=" + agg.n + ")",
+              agg.value === null ? missTip() : null);
+            var oth = document.createElement("td");
+            var cv = c ? c.comparison.value : null;
+            show(oth, !c || fmt(m, cv) === null ? "—" : fmt(m, cv), null);
+            var chg = document.createElement("td");
+            chg.appendChild(deltaEl(m, c ? c.delta : null));
+            if (c && c.delta !== null && c.within_noise) {
+              var noise = document.createElement("span");
+              noise.className = "hint";
+              noise.textContent = " · within noise";
+              noise.title = "Paired-bootstrap 95% CI includes zero (n=" +
+                (c.n_paired || 0) + ").";
+              chg.appendChild(noise);
+            }
+            var st = document.createElement("td");
+            st.appendChild(pill(m, agg.value));
+            [name, cur, oth, chg, st].forEach(function (td) { tr.appendChild(td); });
+            table.appendChild(tr);
+          });
+        });
+        host.appendChild(table);
+      }
+
+      // ---- breakdown, failures, trend, lowest ----
+      async function renderSide(run) {
+        if (!run) { return; }
+        var bd = await get("/api/runs/" + run.id + "/breakdown?by=question_type&metric=answer_correctness");
+        var bt = $("eval-by-type");
+        while (bt.firstChild) { bt.removeChild(bt.firstChild); }
+        (bd.groups || []).forEach(function (g, i) {
+          bt.appendChild(barRow(g.group + " · " + g.n + " q", g.value, SERIES[i % SERIES.length]));
+        });
+        if (!(bd.groups || []).length) {
+          bt.appendChild(note("No scored questions yet."));
+        }
+        var fb = await get("/api/runs/" + run.id + "/failures");
+        var fh = $("eval-failures");
+        while (fh.firstChild) { fh.removeChild(fh.firstChild); }
+        var causes = state.cfg.dashboard.failure_causes || {};
+        var entries = Object.keys(fb.by_cause || {});
+        var sub = document.createElement("p");
+        sub.className = "hint";
+        sub.textContent = fb.total_failed
+          ? "Questions below the bar (" + fb.total_failed + " of " + fb.total + ")"
+          : "No failures — every scored question is above the bar.";
+        fh.appendChild(sub);
+        var max = Math.max.apply(null, entries.map(function (k) { return fb.by_cause[k]; }).concat([1]));
+        entries.forEach(function (k) {
+          fh.appendChild(barRow(causes[k] || k, fb.by_cause[k] / max, BLUE, String(fb.by_cause[k])));
+        });
+        var trend = await get("/api/trend?metrics=" +
+          encodeURIComponent((state.cfg.dashboard.trend_metrics || []).join(",")) + "&last=12");
+        renderTrend(trend.trend || []);
+        var low = await get("/api/runs/" + run.id +
+          "/results?sort=answer_correctness&order=asc&limit=5");
+        var lh = $("eval-lowest");
+        while (lh.firstChild) { lh.removeChild(lh.firstChild); }
+        if (!low.results.length) { lh.appendChild(note("No results yet.")); }
+        low.results.forEach(function (r) {
+          var b = document.createElement("button");
+          b.type = "button"; b.className = "qrow";
+          var q = document.createElement("span"); q.textContent = r.question;
+          var ty = document.createElement("span");
+          ty.className = "hint"; ty.textContent = r.question_type || "";
+          var cause = document.createElement("span");
+          cause.className = "cause-tag";
+          cause.textContent = (causes[r.failure_cause] || r.failure_cause || "—");
+          var sc = document.createElement("span");
+          var v = (r.scores || {}).answer_correctness;
+          sc.textContent = (v === null || v === undefined) ? "—" : Number(v).toFixed(2);
+          [q, ty, cause, sc].forEach(function (el) { b.appendChild(el); });
+          b.addEventListener("click", function () { openTrace(r.id); });
+          lh.appendChild(b);
+        });
+      }
+      function note(text) {
+        var p = document.createElement("p");
+        p.className = "hint"; p.textContent = text;
+        return p;
+      }
+      function barRow(label, value, color, text) {
+        var row = document.createElement("div");
+        row.className = "bar-row";
+        var lab = document.createElement("span"); lab.textContent = label;
+        var track = document.createElement("div"); track.className = "bar-track";
+        var fill = document.createElement("div"); fill.className = "bar-fill";
+        fill.style.background = color;
+        fill.style.width = (value === null ? 0 : Math.max(0, Math.min(1, value)) * 100) + "%";
+        track.appendChild(fill);
+        var val = document.createElement("span"); val.className = "bar-val";
+        val.textContent = text !== undefined ? text
+          : (value === null ? "—" : Number(value).toFixed(2));
+        [lab, track, val].forEach(function (el) { row.appendChild(el); });
+        return row;
+      }
+      function renderTrend(series) {
+        var host = $("eval-trend");
+        while (host.firstChild) { host.removeChild(host.firstChild); }
+        if (!series.length) { host.appendChild(note("No completed runs yet.")); return; }
+        var W = 520, H = 220, P = 34;
+        var all = [];
+        series.forEach(function (s) {
+          Object.keys(s.metrics).forEach(function (m) {
+            if (s.metrics[m].value !== null) { all.push(s.metrics[m].value); }
+          });
+        });
+        var lo = Math.min.apply(null, all.concat([0.55])), hi = Math.max.apply(null, all.concat([1]));
+        function X(i) { return P + (W - 2 * P) * (series.length < 2 ? 0.5 : i / (series.length - 1)); }
+        function Y(v) { return H - P - (H - 2 * P) * (v - lo) / Math.max(0.01, hi - lo); }
+        var svgNS = "http://www.w3.org/2000/svg";
+        var svg = document.createElementNS(svgNS, "svg");
+        svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+        svg.setAttribute("width", "100%");
+        svg.setAttribute("role", "img");
+        svg.setAttribute("aria-label", "Metric trend across runs");
+        var names = Object.keys(series[0].metrics);
+        names.forEach(function (m, mi) {
+          var pts = [];
+          series.forEach(function (s, i) {
+            var v = s.metrics[m].value;
+            if (v !== null) { pts.push([X(i), Y(v)]); }
+          });
+          var path = document.createElementNS(svgNS, "polyline");
+          path.setAttribute("points", pts.map(function (p) { return p.join(","); }).join(" "));
+          path.setAttribute("fill", "none");
+          path.setAttribute("stroke", SERIES[mi % SERIES.length]);
+          path.setAttribute("stroke-width", "2");
+          var tip = document.createElementNS(svgNS, "title");
+          tip.textContent = m;
+          path.appendChild(tip);
+          svg.appendChild(path);
+          pts.forEach(function (p) {
+            var c = document.createElementNS(svgNS, "circle");
+            c.setAttribute("cx", p[0]); c.setAttribute("cy", p[1]); c.setAttribute("r", "3");
+            c.setAttribute("fill", SERIES[mi % SERIES.length]);
+            svg.appendChild(c);
+          });
+          if (pts.length) {
+            var last = pts[pts.length - 1];
+            var t = document.createElementNS(svgNS, "text");
+            t.setAttribute("x", Math.min(W - 30, last[0] + 5)); t.setAttribute("y", last[1] + 3);
+            t.setAttribute("font-size", "10");
+            var lastV = null;
+            for (var i = series.length - 1; i >= 0; i--) {
+              if (series[i].metrics[m].value !== null) { lastV = series[i].metrics[m].value; break; }
+            }
+            t.textContent = Number(lastV).toFixed(2);
+            svg.appendChild(t);
+          }
+        });
+        host.appendChild(svg);
+        var legend = document.createElement("p");
+        legend.className = "hint";
+        legend.textContent = names.join(" · ");
+        host.appendChild(legend);
+        var tbl = $("eval-trend-table");
+        while (tbl.firstChild) { tbl.removeChild(tbl.firstChild); }
+        var table = document.createElement("table");
+        table.className = "eval-table";
+        var hr = document.createElement("tr");
+        ["Run"].concat(names).forEach(function (n) {
+          var th = document.createElement("th"); th.textContent = n; hr.appendChild(th);
+        });
+        table.appendChild(hr);
+        series.forEach(function (s) {
+          var tr = document.createElement("tr");
+          var lab = document.createElement("td");
+          lab.textContent = s.label || s.run_id.slice(0, 8);
+          tr.appendChild(lab);
+          names.forEach(function (m) {
+            var td = document.createElement("td");
+            var v = s.metrics[m].value;
+            td.textContent = v === null ? "—" : Number(v).toFixed(2);
+            tr.appendChild(td);
+          });
+          table.appendChild(tr);
+        });
+        tbl.appendChild(table);
+      }
+
+      // ---- trace drawer ----
+      async function openTrace(resultId) {
+        var body = $("eval-drawer-body");
+        while (body.firstChild) { body.removeChild(body.firstChild); }
+        $("eval-drawer").hidden = false;
+        var t = await get("/api/results/" + resultId).catch(function (e) { return { error: e.message }; });
+        if (t.error) {
+          body.appendChild(note("Trace failed: " + t.error));
+          return;
+        }
+        var h = document.createElement("h2");
+        h.textContent = t.question || t.question_id;
+        body.appendChild(h);
+        var meta = document.createElement("p");
+        meta.className = "hint";
+        meta.textContent = (t.question_type || "") + " · status " + t.status +
+          (t.failure_cause ? " · likely cause: " + t.failure_cause : "");
+        body.appendChild(meta);
+        if (t.reference_answer) {
+          var ref = document.createElement("p");
+          ref.textContent = "Reference: " + t.reference_answer;
+          body.appendChild(ref);
+        }
+        var ch = document.createElement("h3");
+        ch.textContent = "Retrieved chunks (" + t.chunks.length + ")";
+        body.appendChild(ch);
+        t.chunks.forEach(function (c, i) {
+          var box = document.createElement("div");
+          box.className = "eval-chunk" + (c.relevant ? " rel" : "");
+          var head = document.createElement("div");
+          head.textContent = "#" + (i + 1) + " " + c.video_id + " · " +
+            fmtTime(c.start_s) + "–" + fmtTime(c.end_s) + " · score " +
+            (c.score === null ? "—" : c.score) + (c.relevant ? " · relevant" : "");
+          var sn = document.createElement("p");
+          sn.className = "eval-snippet";
+          sn.textContent = c.text || "";
+          box.appendChild(head); box.appendChild(sn);
+          body.appendChild(box);
+        });
+        if (t.answer) {
+          var ah = document.createElement("h3");
+          ah.textContent = "Answer";
+          var ap = document.createElement("p");
+          ap.className = "eval-snippet";
+          ap.textContent = t.answer;
+          body.appendChild(ah); body.appendChild(ap);
+        }
+        var sh = document.createElement("h3");
+        sh.textContent = "Scores";
+        body.appendChild(sh);
+        t.scores.forEach(function (s) {
+          var p = document.createElement("p");
+          p.className = "hint";
+          var detail = s.detail || {};
+          p.textContent = s.metric + ": " +
+            (s.value === null ? "— (not computable here)" : Number(s.value).toFixed(2)) +
+            (detail.reasoning ? " — " + detail.reasoning : "") +
+            (s.judge_model ? " [" + s.judge_model + "]" : "");
+          body.appendChild(p);
+        });
+        if (t.citations && t.citations.length) {
+          var chh = document.createElement("h3");
+          chh.textContent = "Citations";
+          body.appendChild(chh);
+          t.citations.forEach(function (c) {
+            var p = document.createElement("p");
+            p.className = "hint";
+            p.textContent = (c.hit ? "✓ hit " : "✗ miss ") + c.video_id +
+              " @ " + fmtTime(c.start_s);
+            body.appendChild(p);
+            var a = document.createElement("a");
+            a.href = c.url; a.target = "_blank"; a.rel = "noreferrer";
+            a.textContent = "Open at timestamp";
+            body.appendChild(a);
+          });
+        }
+      }
+      function fmtTime(s) {
+        return window.EvalLib.fmtTime(s);
+      }
+      $("eval-drawer-close").addEventListener("click", function () {
+        $("eval-drawer").hidden = true;
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") { $("eval-drawer").hidden = true; }
+      });
+      $("eval-trend-toggle").addEventListener("click", function () {
+        var t = $("eval-trend-table");
+        t.hidden = !t.hidden;
+        this.textContent = t.hidden ? "View as table" : "View as chart";
+      });
+
+      // ---- run dialog (inline prompt row), selectors, live feed ----
+      $("eval-cancel-btn").addEventListener("click", async function () {
+        if (!state.runId) { return; }
+        try {
+          var r = await fetch(API_BASE + "/api/runs/" + state.runId + "/cancel", {
+            method: "POST",
+            headers: headers()
+          });
+          if (!r.ok) { throw new Error("HTTP " + r.status); }
+          await refresh(true);
+        } catch (err) {
+          window.alert("Cancel failed: " + err.message);
+        }
+      });
+      $("eval-run-btn").addEventListener("click", async function () {
+        var path = window.prompt("Golden set file path:",
+          "backend\\eval\\golden_set.jsonl");
+        if (path === null) { return; }
+        var label = window.prompt("Run label:", "dashboard run");
+        if (label === null) { return; }
+        try {
+          var r = await fetch(API_BASE + "/api/runs", {
+            method: "POST",
+            headers: headers({ "Content-Type": "application/json" }),
+            body: JSON.stringify({ dataset_path: path, label: label })
+          });
+          if (!r.ok) {
+            var e = await r.json().catch(function () { return {}; });
+            throw new Error("HTTP " + r.status + " " + (e.message || ""));
+          }
+          var body = await r.json();
+          syncUrl(body.run_id, state.compareId);
+          await waitForRun(body.run_id);
+          await refresh(true);
+        } catch (err) {
+          window.alert("Run failed to start: " + err.message);
+        }
+      });
+      async function waitForRun(runId) {
+        // The row is inserted by the background worker; poll until listed.
+        for (var i = 0; i < 10; i++) {
+          try {
+            var r = await fetch(API_BASE + "/api/runs/" + runId, { headers: headers() });
+            if (r.ok) { return; }
+          } catch (e) { /* retry below */ }
+          await new Promise(function (res) { setTimeout(res, 500); });
+        }
+      }
+      function syncUrl(runId, compareId) {
+        var q = new URLSearchParams(window.location.search);
+        if (runId) { q.set("run", runId); } else { q.delete("run"); }
+        if (compareId) { q.set("compare", compareId); } else { q.delete("compare"); }
+        window.history.replaceState(null, "",
+          window.location.pathname + (q.toString() ? "?" + q.toString() : ""));
+      }
+      $("eval-run-sel").addEventListener("change", function () {
+        state.runId = this.value || null;
+        syncUrl(state.runId, state.compareId);
+        refresh(true);
+      });
+      $("eval-cmp-sel").addEventListener("change", function () {
+        state.compareId = this.value || null;
+        syncUrl(state.runId, state.compareId);
+        refresh(true);
+      });
+
+      var liveTimer = null, failCount = 0;
+      function setLive(text) { $("eval-live").textContent = text; }
+      async function subscribe() {
+        try {
+          var r = await fetch(API_BASE + "/api/events", { headers: headers() });
+          if (!r.ok || !r.body) { throw new Error("no stream"); }
+          var reader = r.body.getReader();
+          var dec = new TextDecoder();
+          var buf = "", backoff = 1000;
+          failCount = 0;
+          setLive("● Live");
+          state.lastEventAt = Date.now();
+          for (;;) {
+            var chunk = await reader.read();
+            if (chunk.done) { throw new Error("closed"); }
+            buf += dec.decode(chunk.value, { stream: true });
+            var parts = buf.split("\n\n");
+            buf = parts.pop();
+            for (var i = 0; i < parts.length; i++) {
+              (function (block) {
+                var lines = block.split("\n").filter(function (l) {
+                  return l.indexOf("data:") === 0;
+                });
+                if (!lines.length) { return; }
+                try {
+                  var evt = JSON.parse(lines.map(function (l) {
+                    return l.slice(5);
+                  }).join(""));
+                  state.lastEventAt = Date.now();
+                  onEvent(evt);
+                } catch (e) { /* ignore malformed */ }
+              })(parts[i]);
+            }
+            backoff = 1000;
+          }
+        } catch (e) {
+          failCount += 1;
+          var wait = Math.min(30000, 1000 * Math.pow(2, failCount));
+          setLive("○ Reconnecting… (polling every 3s)");
+          pollOnce();
+          liveTimer = window.setTimeout(subscribe, wait);
+        }
+      }
+      var lastRefresh = 0, pendingRefresh = false;
+      function onEvent(evt) {
+        if (evt.run_id && (evt.run_id === state.runId || evt.run_id === state.compareId)) {
+          state.sseOk = true;
+          var now = Date.now();
+          if (now - lastRefresh < 1000) {
+            if (!pendingRefresh) {
+              pendingRefresh = true;
+              window.setTimeout(function () {
+                pendingRefresh = false; lastRefresh = Date.now(); refresh(true);
+              }, 1000 - (now - lastRefresh));
+            }
+            return;
+          }
+          lastRefresh = now;
+          refresh(true);
+        }
+        if (evt.run_id) { loadRuns(); }
+      }
+      async function pollOnce() {
+        try { await refresh(true); } catch (e) { /* next tick */ }
+        liveTimer = window.setTimeout(pollOnce, 3000);
+      }
+
+      // ---- boot ----
+      async function ping() {
+        try {
+          var r = await fetch(API_BASE + "/api/health");
+          if (!r.ok) { throw new Error("HTTP " + r.status); }
+          var conn = $("eval-connection");
+          conn.textContent = "Backend: live";
+          conn.className = "status status-ok";
+        } catch (e) {
+          var conn2 = $("eval-connection");
+          conn2.textContent = "Backend: unreachable (" + e.message + ")";
+          conn2.className = "status status-error";
+        }
+      }
+      async function refresh(full) {
+        var run = await loadRuns();
+        if (!state.cfg) {
+          state.cfg = await get("/api/config/dashboard");
+        }
+        if (!run && !state.runs.length) {
+          ["eval-tiles", "eval-metrics-table", "eval-by-type",
+           "eval-failures", "eval-trend", "eval-lowest"].forEach(function (id) {
+            var el = $(id);
+            while (el.firstChild) { el.removeChild(el.firstChild); }
+          });
+          return;
+        }
+        if (full) {
+          await renderTiles(run);
+          await renderSide(run);
+        }
+      }
+      (async function boot() {
+        await ping();
+        try {
+          state.cfg = await get("/api/config/dashboard");
+        } catch (e) {
+          var page = $("eval-page");
+          while (page.firstChild) { page.removeChild(page.firstChild); }
+          var err = document.createElement("p");
+          err.className = "status status-error";
+          err.textContent = "API error: " + e.message + " ";
+          var retry = document.createElement("button");
+          retry.type = "button"; retry.textContent = "Retry";
+          retry.addEventListener("click", function () { window.location.reload(); });
+          err.appendChild(retry);
+          page.appendChild(err);
+          return;
+        }
+        await refresh(true);
+        subscribe();
+        window.setInterval(function () {
+          if (Date.now() - state.lastEventAt > 10000 && state.sseOk !== true) { return; }
+          setLive("● Live · updated " +
+            Math.max(0, Math.round((Date.now() - state.lastEventAt) / 1000)) + "s ago");
+        }, 5000);
+      })();
+    })();
+  </script>
+</body>
+
+</html>

@@ -348,3 +348,29 @@
 - **Duplicated user message:** `handleAsk` appended the user bubble optimistically, then `appendChatTurn(result)` appended it again. Replaced with `appendAssistantTurn()` (assistant side only); `appendChatTurn` deleted. History rendering was already correct.
 - **Translation re-wired per answer:** the 2026-10-03 `POST /translate` feature survived in the backend but the bubble redesign left it with no visible control. Every generated answer bubble now carries the translate icon (same SVG/language list); click toggles an inline picker that translates from the stored original (never chained), restores the original on placeholder re-select, and drops stale responses via a per-bubble token. Refusals with no answer text get no icon. Citations untouched.
 - **Verification:** `node --check` clean, pytest **47 passed**.
+
+---
+
+# Session Log — 2026-10-10 (eval metrics + dashboard session)
+
+## 1. RAG evaluation status: confirmed NO working metrics exist
+
+- **Finding (verified, not assumed):** repo-wide search for `recall|metric|faithfulness|bleu|rouge|mrr|ndcg|hit_rate` finds zero implementation matches. `backend/eval/` contains only `run_eval.py` (2-line stub printing "Add positives.jsonl + negatives.jsonl, then sweep thresholds here"). No `positives.jsonl`/`negatives.jsonl` or any ground-truth file exists anywhere.
+- **Docs vs reality:** `docs/ARCHITECTURE.md` §13 specifies the intended strategy (Recall@3, timestamp ±15s, false-refusal/false-answer rates, threshold sweep) and shows an example result sentence ("Recall@3 61%→84%…") — that is illustrative doc wording, not a measured result. `README.md`/`Workflow.md` confirm thresholds `0.55/0.15` are uncalibrated placeholders.
+- **Closest raw material (not a metric):** every `/ask` response carries `top_score`, and `QueryService._save_turn` persists per-turn `status, top_score, citations` to the SQLite `messages` table — usable as future eval input, but nothing aggregates it.
+
+## 2. Evaluation plan agreed: 10 metrics in pipeline order
+
+- Consolidated from a 15-item candidate list (retrieval eval + accuracy + answer similarity folded in as umbrella/sub-signals; completeness deferred to v2 for lack of aspect labels). Final order follows real query-execution flow: (1) Recall@k incl. k-sweep @1/3/8/30 → (2) Precision@k → (3) Context Recall → (4) Refusal correctness (false-refusal/false-answer, calibrates `T_HIGH`/`T_LOW`) → (5) Context utilization → (6) Faithfulness/Hallucination (one judge, two numbers) → (7) Answer relevance → (8) Correctness (+similarity proxy) → (9) Citation accuracy (video + ±15s) → (10) Latency per-stage (budgets: first token 1–2s, refusal ~250ms).
+- **Phasing:** A = deterministic/offline/CI-safe (1–5 + latency harness, zero LLM cost); B = LLM-judge nightly sampled (6–8 + utilization, reuses configured LLM pinned); C = v2 (aspect-level completeness + online proxies like re-ask rate from `messages`). Prerequisites: dataset format (`positives.jsonl` with video_id+timestamp+reference, adversarial negatives), judge model choice, results store.
+
+## 3. Eval dashboard shell — `frontend/eval.html` + `GET /eval`
+
+- **New page (frontend-only, no backend eval wiring yet):** 10 metric boxes in execution order; each box holds order number + name, `deterministic`/`llm-judge` tag, headline value slot, one-line description, stage sub-boxes (50 total, each with `--` placeholder), and a flow note stating stage order. Eval CSS scoped in-page so the main UI is untouched.
+- **Binding contract for later:** slots carry `data-metric`/`data-stage`/`data-value`; stub `window.EvalMonitor.set(metric, stage, text)` / `.headline(metric, text)` writes via `textContent` only. Backend keeps the `/health` ping (same-origin, 5s interval). Verified: `/eval` → 200, 10 boxes / 50 stage slots / 10 headlines, pytest **47 passed**.
+- **`api/app.py`:** added `GET /eval` route beside `/`, `/app.js`, `/styles.css`. Note: a backend started before this edit serves the page only at `/static/eval.html` until restarted (static files read from disk, routes register at startup).
+- **Architecture decision (user-confirmed):** keep single-origin (API + page on :8000); do NOT split frontend to :3000. Rationale recorded: no CORS/preflight on the `X-API-Key` header, one process/URL, negligible static-serving cost at this scale; split only if a framework build step, independent scaling, or non-browser clients force it (then prefer reverse-proxy, not bare port-split).
+
+## 4. Deliberately not changed
+
+- No `QueryService` timing/trace instrumentation yet (prerequisite for both live dashboard values and the latency metric — next step when authorized). No eval dataset, no judge harness, no `/eval/*` API endpoints. `styles.css`, `index.html`, `app.js` untouched.

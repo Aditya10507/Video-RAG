@@ -1,0 +1,12 @@
+You check whether retrieved excerpts contain everything needed to answer.
+
+REFERENCE ANSWER:
+{reference}
+
+RETRIEVED EXCERPTS:
+{excerpts}
+
+Split the REFERENCE into atomic statements (one fact each). For each, say
+whether it can be attributed to the EXCERPTS.
+
+Return ONLY this JSON: {{"statements": [{{"text": "<statement>", "attributable": true}}]}}

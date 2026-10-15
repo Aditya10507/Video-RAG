@@ -23,6 +23,7 @@ class LanguageModel:
         self.api_key = api_key
         self.timeout = timeout
         self.max_tokens = max_tokens
+        self.last_usage: dict = {"input_tokens": 0, "output_tokens": 0, "model": model}
 
     def _headers(self, accept: str = "application/json") -> dict:
         return {
@@ -32,6 +33,17 @@ class LanguageModel:
         }
 
     def complete(self, messages: list[dict], max_tokens: int | None = None) -> str:
+        text, _usage = self.complete_with_usage(messages, max_tokens)
+        return text
+
+    def complete_with_usage(
+        self, messages: list[dict], max_tokens: int | None = None
+    ) -> tuple[str, dict]:
+        """Same call, but also returns the provider usage block (may be empty).
+
+        The usage of the most recent call is also kept on `last_usage` so the
+        eval adapter can read cost inputs after driving the pipeline's ask().
+        """
         try:
             r = httpx.post(
                 f"{self.base_url}/chat/completions",
@@ -46,7 +58,14 @@ class LanguageModel:
                 timeout=self.timeout,
             )
             r.raise_for_status()
-            return (r.json()["choices"][0]["message"]["content"] or "").strip()
+            body = r.json()
+            usage = body.get("usage") or {}
+            self.last_usage = {
+                "input_tokens": usage.get("prompt_tokens", 0),
+                "output_tokens": usage.get("completion_tokens", 0),
+                "model": self.model,
+            }
+            return ((body["choices"][0]["message"]["content"]) or "").strip(), self.last_usage
         except Exception as e:
             raise LlmError(f"LLM call failed: {e}") from e
 
@@ -103,6 +122,15 @@ class StubLanguageModel(LanguageModel):
     def complete(self, messages: list[dict], max_tokens: int | None = None) -> str:
         text = json.dumps(messages)[-2000:]
         return f"Stub answer grounded in: {text[:300]}"
+
+    def complete_with_usage(
+        self, messages: list[dict], max_tokens: int | None = None
+    ) -> tuple[str, dict]:
+        return self.complete(messages, max_tokens), {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "model": "stub",
+        }
 
     def complete_json(self, messages: list[dict]) -> dict:
         return {"explains": True, "confidence": 0.9}

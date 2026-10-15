@@ -95,6 +95,10 @@ class Settings:
     llm_timeout_seconds: float = 30.0
     llm_max_output_tokens: int = 600
 
+    judge_base_url: str = ""
+    judge_model: str = ""
+    judge_api_key: str | None = None
+
     refusal_message: str = "The topic is not covered in the given course"
 
     def __post_init__(self) -> None:
@@ -201,6 +205,9 @@ def from_env() -> Settings:
         llm_api_key=_get("VIDEO_RAG_LLM_API_KEY", "") or None,
         llm_timeout_seconds=_get_float("VIDEO_RAG_LLM_TIMEOUT_SECONDS", 30.0),
         llm_max_output_tokens=_get_int("VIDEO_RAG_LLM_MAX_OUTPUT_TOKENS", 600),
+        judge_base_url=_get("VIDEO_RAG_JUDGE_BASE_URL", ""),
+        judge_model=_get("VIDEO_RAG_JUDGE_MODEL", ""),
+        judge_api_key=_get("VIDEO_RAG_JUDGE_API_KEY", "") or None,
         refusal_message=_get(
             "VIDEO_RAG_REFUSAL_MESSAGE", "The topic is not covered in the given course"
         ),
@@ -209,7 +216,8 @@ def from_env() -> Settings:
     return s
 
 
-MASKED = {"api_keys", "youtube_api_key", "jina_api_key", "qdrant_api_key", "llm_api_key"}
+MASKED = {"api_keys", "youtube_api_key", "jina_api_key", "qdrant_api_key", "llm_api_key",
+          "judge_api_key"}
 
 
 def masked_dict(settings: Settings) -> dict:

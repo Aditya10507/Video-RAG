@@ -1,0 +1,11 @@
+You check whether each cited chunk actually supports the answer.
+
+ANSWER:
+{answer}
+
+CITED CHUNKS (id + text):
+{cited}
+
+For each chunk id, say whether its text supports some claim in the ANSWER.
+
+Return ONLY this JSON: {{"pairs": [{{"chunk_id": "<id>", "supported": true}}]}}

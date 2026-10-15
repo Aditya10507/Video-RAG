@@ -15,6 +15,15 @@ Status:   not_covered
           The topic is not covered in the given course
 ```
 
+## Demo
+
+<!-- Replace the link below with your demo video once uploaded (see options:
+     1) YouTube link + thumbnail, 2) GitHub user-attachments MP4 upload).
+     Example: [![Watch the demo](docs/demo-thumbnail.png)](https://www.youtube.com/watch?v=YOUR_ID) -->
+
+No demo video linked yet — paste an ingest link, ask a question, and record
+the timestamp-seek flow to fill this section.
+
 ## The problem it solves
 
 Students learn from YouTube playlists but rarely take notes, so revision means
@@ -38,18 +47,13 @@ video-rag/
     requirements.txt  runtime dependencies
     requirements-dev.txt  test and lint dependencies
     pyproject.toml    package, pytest, ruff and mypy settings
-  frontend/           the web page: three files, no build step
-    index.html        page structure
+  frontend/           the web page: three files, no build step, no framework
+    index.html        page structure (Home + Library views, chat panel)
     styles.css        styling
-    app.js            calls the API and renders answers
+    app.js            calls the API and renders answers (chat, streaming, player seek)
   docs/               written documentation
     ARCHITECTURE.md   layers, diagrams and design decisions
-    EXPLANATION.md    the complete 1-hour walkthrough: architecture,
-                      workflows, every library and API, requirements
-    WINDOWS.md        Windows setup, step by step
-    TROUBLESHOOTING.md  common errors and their fixes
-    DEPLOY.md         how to deploy
-    INTERVIEW.md      how to present this project
+    Workflow.md       end-to-end workflows that mirror the current code
   .env.example        every setting with comments; copy to .env
   .gitignore          keeps secrets and local data out of git
   README.md           this file
@@ -59,10 +63,13 @@ Inside `backend/src/video_rag/` the layout mirrors the architecture:
 
 ```
 core/           pure logic with no external dependencies: url parsing,
-                chunking, ranking, timestamps, cleaning, coverage gate
+                chunking, ranking, fusion, timestamps, cleaning,
+                coverage gate, answer language
 core/ports.py   the interfaces every adapter must satisfy
-adapters/       everything that touches the outside world: youtube,
-                captions, embedders, vector stores, sqlite, llm
+adapters/       everything that touches the outside world: youtube
+                (yt-dlp + Data API v3), captions, embedders (Jina +
+                hashing fallback), rerankers (Jina + lexical), vector
+                stores (Qdrant + memory), sqlite registry + chat, llm
 ingest/         use case one: index a course
 ask/            use case two: answer one question about one course
 api/            http layer: app, routes, request models, auth, jobs
@@ -90,9 +97,9 @@ playlist link, wait for indexing, ask a question, and click the timestamp to
 watch that moment.
 
 Optional: set `VIDEO_RAG_YOUTUBE_API_KEY` when
-`VIDEO_RAG_CATALOG_BACKEND=youtube_data_api`. Full setup details are in
-`docs/WINDOWS.md`. If something fails, every common error is listed with its
-fix in `docs/TROUBLESHOOTING.md`.
+`VIDEO_RAG_CATALOG_BACKEND=youtube_data_api`. Every setting is commented in
+`.env.example`; the architecture and failure handling are in
+`docs/ARCHITECTURE.md` and the step-by-step flows in `docs/Workflow.md`.
 
 On Linux or macOS the same tasks are three commands:
 
@@ -106,11 +113,13 @@ VIDEO_RAG_FRONTEND_DIR=frontend PYTHONPATH=backend/src .venv/bin/python -m video
 
 1. **Input.** A pasted link is parsed into a video, playlist or channel. The
    playlist is expanded into a video list with ids, titles and durations.
-2. **Transcripts.** The fast caption API is tried first, then yt-dlp
-   subtitles as fallback; together they cover most videos. Videos with
-   no subtitle tracks at all are marked failed and skipped. Word level
-   timings are kept untouched: they are the source of truth for every
-   timestamp shown later.
+2. **Transcripts.** The fast caption API (`youtube-transcript-api`, human >
+    auto captions, retries with backoff) is the practical source. A yt-dlp
+    subtitle fallback exists in the code path but its parser is not
+    configured, so videos without any caption-API tracks are marked failed
+    and skipped. Word level
+    timings are kept untouched: they are the source of truth for every
+    timestamp shown later.
 3. **Storage.** Transcripts are split into overlapping windows of about a
    minute that never cross a sentence boundary. Each chunk stores its video id,
    its start second and its text, then is embedded and written to the vector
@@ -122,6 +131,28 @@ VIDEO_RAG_FRONTEND_DIR=frontend PYTHONPATH=backend/src .venv/bin/python -m video
 
 The refusal is a rule in code, not a request to a model, which is what makes it
 reliable. `docs/ARCHITECTURE.md` has the diagrams and the reasoning.
+
+## Technology stack
+
+| Concern | What this system uses |
+| --- | --- |
+| Language / runtime | Python ≥3.11 (`backend/src/video_rag/`) |
+| HTTP API | FastAPI + uvicorn, single process serves API + static frontend on `:8000` |
+| Course listing | yt-dlp flat expand by default; opt-in YouTube Data API v3 (`VIDEO_RAG_CATALOG_BACKEND`) |
+| Transcripts | `youtube-transcript-api` (human > auto, retries); yt-dlp subtitle parser present but unconfigured |
+| Chunking | Custom sentence-aware ~60 s windows / ~15 s overlap (`core/chunking.py`) |
+| Embeddings | Jina `jina-embeddings-v3`, 1024-dim multilingual hosted API; offline `HashingEmbedder` for tests/smoke only |
+| Vector store | Qdrant Cloud (`qdrant-client`, one `chunks` collection filtered by `course_id`); local JSON `MemoryVectorStore` for dev/tests |
+| Retrieval | Dense top-30 + keyword top-30, unioned + deduped, reranked to top-8 |
+| Reranker | Jina `jina-reranker-v2-base-multilingual`; offline `LexicalReranker` fallback |
+| Answer writing | Required OpenAI-compatible LLM (Groq `qwen/qwen3.8-27b` in the live `.env`); backend refuses to start without `VIDEO_RAG_LLM_API_KEY` |
+| Registry + chat | SQLite (`data/registry.db`: `courses`, `videos`, `course_videos`, `messages`) |
+| Frontend | Plain HTML/CSS/JS, no framework, no build (`index.html`, `app.js`, `styles.css`); YouTube IFrame embed seeks to citations; answers stream over SSE |
+| Tests / lint | pytest (69 tests, fake adapters, offline) + 4 `node:test` frontend checks, stdlib `backend/tools/run_tests.py`, `cli smoke`, ruff + mypy configured |
+| Eval | Offline runner + dashboard: `backend/eval/golden_set.jsonl` → `data/eval.db` → `/eval` (recall/MRR/timestamps, LLM-judge faithfulness/correctness, failures, trend, traces, CSV, SSE). Thresholds `0.55/0.15` still uncalibrated placeholders |
+
+Defaults (`VIDEO_RAG_CATALOG_BACKEND=ytdlp`, `VIDEO_RAG_VECTOR_BACKEND=memory`, lexical rerank) run
+offline for tests/smoke. The live setup uses Data API + Qdrant Cloud + Jina + Groq (see `.env.example`).
 
 ## HTTP API
 
@@ -135,7 +166,9 @@ reliable. `docs/ARCHITECTURE.md` has the diagrams and the reasoning.
 | POST | `/translate` | Translate a generated answer into a selected language using the configured LLM. |
 | GET | `/courses` | List indexed courses with video and chunk counts. |
 | GET | `/courses/{course_id}/videos` | List the videos of one course. |
-| GET | `/courses/{course_id}/syllabus` | List what the course contains. |
+| GET | `/courses/{course_id}/syllabus` | List what the course contains (currently its video titles). |
+| GET | `/courses/{course_id}/messages?limit=` | Read the saved chat thread for one course. |
+| DELETE | `/courses/{course_id}/messages` | Clear the chat thread (the "Clear" button). |
 | GET | `/health` | Liveness plus which backends are active. |
 
 Interactive documentation is served at `/docs` outside production.
@@ -149,7 +182,9 @@ translated answer.
 
 Every setting is an environment variable prefixed with `VIDEO_RAG_`, documented
 with comments in `.env.example`. Copy that file to `.env` to change anything.
-The defaults run the whole system locally with no external service.
+The defaults use local adapters (memory store, hashing embedder, lexical rerank)
+so tests and `smoke` run offline with no keys; real indexing and answering need
+`VIDEO_RAG_JINA_API_KEY` and the required `VIDEO_RAG_LLM_API_KEY`.
 
 The two settings that matter most are the coverage thresholds
 `VIDEO_RAG_THRESHOLD_HIGH` and `VIDEO_RAG_THRESHOLD_LOW`. They decide when the
@@ -163,15 +198,47 @@ $env:PYTHONPATH = "backend\src"
 .\.venv\Scripts\python.exe -m pytest backend\tests
 ```
 
-47 tests cover URL parsing, chunk boundaries, timestamp refinement, retrieval and
+69 tests cover URL parsing, chunk boundaries, timestamp refinement, retrieval and
 ranking, the coverage gate, the answering service (video scoping, streaming,
 answer-language mirroring), the library listing, the registry rows ingestion
-writes, and the refusal behaviour. They use fake adapters, so the suite runs
-offline in a few seconds and never calls YouTube.
+writes, the translation endpoint, the refusal behaviour, and the offline eval
+stack (dataset validation, DB/runner, deterministic scorers, judge fakes,
+failure causes, eval API incl. SSE). They use fake adapters, so the suite runs
+offline in a few seconds and never calls YouTube. Frontend formatting rules
+have 4 extra stdlib `node:test` checks (`node --test frontend/eval-lib.test.js`).
 
 `.\.venv\Scripts\python.exe -m video_rag.cli smoke` is the end to end check: it
 indexes two fake videos, asks a covered question and an uncovered one, and
 asserts both outcomes.
+
+## Evaluation
+
+Golden questions live in `backend/eval/golden_set.jsonl` (one JSON object per
+line: `id`, `question`, `reference_answer`, `question_type`, `answerable`,
+`requires_visual`, `key_terms`, `gt_segments: [{video_id, start_s, end_s}]`,
+`split`, plus this repo's `course_id` scope). Validate and run offline-first:
+
+```powershell
+$env:PYTHONPATH = "backend\src"
+.\.venv\Scripts\python.exe -m video_rag.cli eval-validate backend\eval\golden_set.jsonl
+.\.venv\Scripts\python.exe -m video_rag.cli eval-run --dataset backend\eval\golden_set.jsonl --label first
+.\.venv\Scripts\python.exe -m video_rag.cli eval-rescore --run <run_id>   # re-score after a prompt change
+.\.venv\Scripts\python.exe backend\tools\check_no_mock_data.py           # no dummy data guard
+```
+
+`eval-run` executes every question through the real pipeline and stores
+answers, retrieved chunks, citations, timings and token usage in
+`data/eval.db`; deterministic metrics (recall, hit, MRR, precision, timestamp
+hit rate, abstain rules, latency, cost) score immediately, and LLM-judge
+metrics (faithfulness, relevancy, correctness, context recall, citation
+accuracy) follow when `VIDEO_RAG_JUDGE_MODEL` is set — ideally a different
+model from the generator. Serve the app and open `/eval` for the dashboard
+(runs, compare with paired-bootstrap "within noise" markers, failures by
+likely cause, trend, per-question traces, CSV export, live updates).
+
+To add a metric: define it in `backend/eval/metrics.yaml` (key, group,
+format, direction), implement the scorer, write rows to `eval_scores` — the
+API and dashboard pick it up with no UI changes.
 
 ## Deployment
 

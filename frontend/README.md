@@ -1,12 +1,14 @@
 # Frontend
 
-Three files, no build step, no packages, no framework.
+Five files, no build step, no packages, no framework.
 
 | File | Responsibility |
 | --- | --- |
 | `index.html` | The page structure: a sidebar with Home and Library views. Home holds index (left) plus ask/answer (right); Library lists indexed courses. |
 | `styles.css` | All styling. Colours are CSS variables at the top of the file. |
 | `app.js` | Calls the API and renders the result. |
+| `eval.html` | Offline eval dashboard: header, status strip, headline tiles, metrics table, type breakdown, failure causes, SVG trend, lowest-questions + trace drawer, SSE with polling fallback. Pure formatting lives in `eval-lib.js`. |
+| `eval-lib.js` (+ `eval-lib.test.js`) | Testable formatting rules (numbers, deltas, pills, timestamps). Run: `node --test frontend/eval-lib.test.js`. |
 
 ## How to run it
 
@@ -72,6 +74,8 @@ it. To run the page separately from the API, set `API_BASE` at the top of
 
 ## If you later want React
 
-The client only depends on four endpoints and returns plain JSON, so a React or
-Next.js version is a rewrite of this folder alone. Keep `/ingest`, `/jobs`,
-`/ask` and `/health` and nothing in the backend has to change.
+The client only depends on the JSON API (`/health`, `/ingest`, `/jobs/{id}`,
+`/ask`, `/ask/stream`, `/translate`, `/courses`, `/courses/{id}/videos`,
+`/courses/{id}/messages`, `/api/*` for eval), so a React or
+Next.js version is a rewrite of this folder alone. Keep those contracts
+and nothing in the backend has to change.

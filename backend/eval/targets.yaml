@@ -1,0 +1,16 @@
+# Metric targets. All null until you set them; the UI then shows
+# "No target set" instead of a pass/fail pill. Never invent targets.
+recall_at_k: null
+hit_at_k: null
+mrr: null
+context_precision_at_k: null
+context_recall: null
+timestamp_hit_rate: null
+citation_accuracy: null
+faithfulness: null
+answer_relevancy: null
+answer_correctness: null
+abstain_accuracy: null
+false_abstain_rate: null
+latency_ms: null
+cost_usd: null

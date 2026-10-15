@@ -4,13 +4,13 @@
 
 | | |
 |---|---|
-| **Document version** | v1.1 |
-| **Last updated** | 2026-10-01 |
-| **Status** | Implemented (subset); deviations from the v1.0 text are listed below and marked inline |
+| **Document version** | v1.2 |
+| **Last updated** | 2026-10-13 |
+| **Status** | Implemented; deviations from the v1.0 text are listed below and marked inline |
 
 ---
 
-## Implementation status (2026-10-01)
+## Implementation status (2026-10-13)
 
 The system described below is built and running, with these deviations from
 the v1.0 design wording:
@@ -34,10 +34,32 @@ the v1.0 design wording:
   the catalog is expanded), and records `courses`/`videos`/`course_videos`
   rows in the SQLite registry, so the Library lists fresh ingests. Per-video
   status follows `pending → indexing → indexed/failed`; failures never abort
-  the job and registry write problems are logged, never fatal.
-- The frontend is three plain files (no Next.js): it polls `/jobs/{id}`
+  the job and registry write problems are logged, never fatal. Re-ingest
+  skips videos whose chunks already exist in the vector store unless
+  `force=true` (checkbox / API flag / `--force`).
+- Chat threads: one thread per course (`chat_id = course_id`) stored in the
+  SQLite `messages` table; every `/ask` and `/ask/stream` result (including
+  refusals) is saved, and follow-ups rewrite via one small LLM call while
+  answers stay grounded in excerpts only. `GET/DELETE /courses/{id}/messages`
+  back the chat panel's history and Clear button.
+- `POST /translate` translates a generated answer via the configured LLM;
+  citations stay separate so timestamps survive translation.
+- The frontend is three plain files (no framework): it polls `/jobs/{id}`
   (an `EventSource` cannot send `X-API-Key`) and consumes `POST /ask/stream`
   SSE for true token streaming.
+- Live wiring (local `.env`) is Data API catalog + Qdrant Cloud vectors +
+  Jina embeddings/rerank + Groq OpenAI-compatible LLM
+  (`qwen/qwen3.8-27b`); defaults remain yt-dlp + memory store + lexical
+  rerank for offline tests/smoke.
+- Eval is a working offline system (see `docs/VERIFY.md`): golden questions
+  in `backend/eval/golden_set.jsonl` run through the real pipeline into
+  `data/eval.db` (`cli eval-run`), with deterministic scorers, optional
+  LLM-judge scoring, failure causes, a REST + SSE API (`/api/*`), and the
+  `/eval` dashboard. Thresholds `0.55/0.15` are still uncalibrated (see §13).
+- 69 offline tests (fake adapters) cover parsing, chunking, timestamps,
+  coverage gate, ask service (scoping, streaming, language), library,
+  ingest-registry writes, translation, and the eval stack (validation,
+  runner, scorers, judge fakes, causes, API incl. SSE).
 
 ---
 
@@ -168,7 +190,7 @@ flowchart TD
 | Dedup Resolver | SQLite lookup | drops `video_id`s already indexed |
 | Course Registry | SQLite | persists `courses`, `videos`, `course_videos` |
 | Job Dispatcher | `asyncio` + semaphore | fans out to Layer 2, concurrency-capped |
-| Progress Channel | SSE | `GET /ingest/{job_id}/stream` → `14/50 indexed` |
+| Progress Channel | SSE + poll | `GET /jobs/{job_id}/stream` SSE; the page polls `GET /jobs/{job_id}` (an `EventSource` cannot send `X-API-Key`) |
 
 ### Supported URL shapes
 
@@ -184,7 +206,7 @@ flowchart TD
 ### Key decisions
 
 - **Ambiguity is resolved by asking, not guessing.** `watch?v=X&list=Y` is what you get when someone copies the address bar mid-lecture. The API returns a clarification prompt: *"Ingest just this video, or all 47 videos in 'DSA Full Course'?"*
-- **Per-video status machine** — `pending → transcribing → chunked → indexed → failed`. A crash at video 38 of 50 costs one video, not 37.
+- **Per-video status machine** — `pending → indexing → indexed/failed`. A crash at video 38 of 50 costs one video, not 37. Empty-transcript videos are marked `failed`, not `indexed`.
 - **Dedup at the video level, not the course level.** The same lecture appears in multiple playlists routinely. Transcribe and embed once; link many times through the `course_videos` join table.
 - **Confirmation before commitment.** The parsed course (title, video count, total runtime) is shown to the user before any transcription work begins.
 
@@ -815,7 +837,7 @@ sequenceDiagram
 }
 ```
 
-### SQLite registry schema
+### SQLite registry schema (as implemented)
 
 ```sql
 CREATE TABLE courses (
@@ -823,22 +845,21 @@ CREATE TABLE courses (
   source_url     TEXT NOT NULL,
   title          TEXT,
   video_count    INTEGER,
-  status         TEXT CHECK(status IN ('pending','ingesting','ready','failed')),
+  status         TEXT,              -- pending | ingesting | ready | failed
   syllabus_json  TEXT,
-  created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at     TIMESTAMP
 );
 
 CREATE TABLE videos (
   video_id          TEXT PRIMARY KEY,
   title             TEXT,
-  duration_sec      INTEGER,
-  transcript_source TEXT CHECK(transcript_source IN
-                      ('human_captions','auto_captions')),
+  duration_seconds  INTEGER,       -- canonical name (legacy DBs used duration_sec)
+  status            TEXT,          -- pending | indexing | indexed | failed
+  transcript_source TEXT,
   pipeline_version  TEXT,
-  status            TEXT CHECK(status IN
-                      ('pending','transcribing','chunked','indexed','failed')),
   error             TEXT,
-  indexed_at        TIMESTAMP
+  updated_at        TIMESTAMP      -- canonical name (legacy DBs used indexed_at)
 );
 
 CREATE TABLE course_videos (
@@ -848,15 +869,28 @@ CREATE TABLE course_videos (
   PRIMARY KEY (course_id, video_id)
 );
 
-CREATE TABLE aliases (
-  domain     TEXT,
-  canonical  TEXT,
-  variant    TEXT,
-  PRIMARY KEY (domain, variant)
+CREATE TABLE messages (              -- one chat thread per course
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  course_id           TEXT NOT NULL,
+  video_id            TEXT,
+  question            TEXT NOT NULL,
+  rewritten_question  TEXT,
+  answer              TEXT,
+  status              TEXT,        -- answered | partial | not_covered
+  top_score           REAL,
+  primary_source_json TEXT,
+  also_mentioned_json TEXT,
+  created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_videos_status ON videos(status);
+CREATE INDEX idx_messages_course ON messages(course_id, created_at);
 ```
+
+Startup migrates legacy column names (`duration_sec → duration_seconds`,
+`indexed_at → updated_at`) without dropping rows. The v1.0 design also
+sketched an `aliases` table; aliasing ships as normalization inside the
+ranking/cleaning code instead (no table).
 
 The `course_videos` join table is what makes video-level dedup possible: one transcription, many course memberships.
 
@@ -882,16 +916,18 @@ The `course_videos` join table is what makes video-level dedup possible: one tra
 | Concern | Choice | Why |
 |---|---|---|
 | API | FastAPI | async native, SSE support, trivial to run locally |
-| Playlist / metadata | `yt-dlp` (flat mode) | one call returns full course listing, no media download |
+| Playlist / metadata | `yt-dlp` flat mode (default) or YouTube Data API v3 (`youtube_data_api`, needs `VIDEO_RAG_YOUTUBE_API_KEY`) | one call returns full course listing, no media download; Data API covers listing/titles/durations only |
 | Existing captions | `youtube-transcript-api` | ~300ms per video, timestamps included, free |
 | Punctuation | `deepmultilingualpunctuation` (optional extra, off by default) | local, seconds, no API cost |
 | Jargon correction | any cheap LLM | targeted at technical terms only |
 | Dense embeddings | Jina `jina-embeddings-v3` | 1024-dim, multilingual via API |
 | Sparse retrieval → shipped as | lexical keyword scoring over scoped points | essential for jargon and proper nouns; BM25/SPLADE deferred |
 | Vector store | Qdrant via URL (Cloud or self-hosted; local JSON store for dev) | payload filtering, one collection, idempotent upserts |
-| Reranking | Jina `jina-reranker-v2-base-multilingual` | multilingual, hosted API |
-| Registry | SQLite | zero-config, resumable jobs, ships with the repo |
-| Frontend | Plain JS + YouTube IFrame API | three files, no build step; the player seeks to the cited timestamp on click |
+| Reranking | Jina `jina-reranker-v2-base-multilingual` (lexical fallback when no key) | multilingual, hosted API |
+| Answer LLM | Required OpenAI-compatible chat API (live: Groq `qwen/qwen3.8-27b`); `complete` / `complete_json` / `stream_complete`; fail-fast without a key | writes answers, verifies gray zone, localizes refusals |
+| Registry | SQLite | zero-config, resumable jobs, chat threads, ships with the repo |
+| Frontend | Plain JS + YouTube IFrame API | five files, no build step; the player seeks to the cited timestamp on click |
+| Eval | Offline runner + dashboard | golden JSONL → `data/eval.db` → `/eval` (deterministic + optional LLM-judge metrics, failures, trend, traces, CSV, SSE); thresholds uncalibrated |
 
 ### Local-first storage note
 
@@ -954,6 +990,8 @@ Note the desirable consequence: **refusals are the fastest path in the system.**
 
 Eval lives in the repo at the same level as source code. It is part of the system, not an afterthought.
 
+Eval lives in the repo at the same level as source code. It is part of the system, not an afterthought.
+
 ### Two datasets
 
 | Set | Size | Contents |
@@ -997,9 +1035,10 @@ video-rag/
 │   │   │   ├── chunking.py       sentence aware windows of about a minute
 │   │   │   ├── transcript_cleaning.py  tidy caption text, keep the timings
 │   │   │   ├── timestamps.py     refine the start second of a match
-│   │   │   ├── ranking.py        score chunks, then score videos
-│   │   │   ├── fusion.py         merge results from several searches
+│   │   ├── ranking.py        score chunks, then score videos
+│   │   │   ├── fusion.py         RRF helper (plain union ships; helper kept)
 │   │   │   ├── coverage.py       the abstention gate
+│   │   │   ├── language.py       mirror the question's language
 │   │   │   ├── models.py         the domain objects
 │   │   │   └── ports.py          interfaces every adapter implements
 │   │   ├── adapters/             everything that touches the outside world
@@ -1015,22 +1054,23 @@ video-rag/
 │   │   │   ├── llm.py                 answer wording
 │   │   │   └── fakes.py               doubles used by the tests
 │   │   ├── ingest/service.py     layers 1 to 3: index a course
-│   │   ├── ask/service.py        layer 4: answer one question
-│   │   ├── api/                  app, routes, schemas, security, jobs
+│   │   ├── ask/service.py        layer 4: answer one question (+ streaming, chat save)
+│   │   ├── api/                  app, routes, schemas, security, jobs, eval API
+│   │   ├── eval/                 offline eval: adapter, datasets, runner, scorers
 │   │   ├── container.py          wires the adapters chosen by the settings
 │   │   ├── config.py             every setting in one place
 │   │   ├── errors.py             the error hierarchy
 │   │   ├── logging_config.py     structured logging
 │   │   └── cli.py                command line entry point
-│   ├── tests/                    47 offline tests using the fakes
-│   ├── tools/run_tests.py        runs the suite without pytest installed
-│   ├── eval/                     positives, negatives and the threshold sweep
+│   ├── tests/                    69 offline tests using the fakes
+│   ├── tools/run_tests.py        runs most of the suite without pytest installed
+│   │                             (translation API tests need pytest + TestClient)
+│   ├── eval/                     golden_set.jsonl + eval/pricing/targets/dashboard.yaml
 │   ├── requirements.txt
 │   ├── requirements-dev.txt
 │   └── pyproject.toml
-├── frontend/                     index.html, styles.css, app.js
-├── docs/                         this document, WINDOWS, DEPLOY, INTERVIEW
-├── run.ps1, run.cmd              Windows task runners
+├── frontend/                     index.html, styles.css, app.js, eval.html, eval-lib.js
+├── docs/                         ARCHITECTURE.md (this document), Workflow.md
 ├── .env.example
 └── README.md
 ```

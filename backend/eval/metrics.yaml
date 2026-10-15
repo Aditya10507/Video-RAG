@@ -1,0 +1,18 @@
+# Metric registry. The API and UI read this file: adding a metric needs no UI change.
+# direction: higher = higher is better, lower = lower is better.
+# format: score (0-1) | seconds | usd | rate
+metrics:
+  recall_at_k: {group: retrieval, format: score, direction: higher, name: "Recall"}
+  hit_at_k: {group: retrieval, format: score, direction: higher, name: "Hit rate"}
+  mrr: {group: retrieval, format: score, direction: higher, name: "MRR"}
+  context_precision_at_k: {group: retrieval, format: score, direction: higher, name: "Context precision"}
+  context_recall: {group: retrieval, format: score, direction: higher, name: "Context recall"}
+  timestamp_hit_rate: {group: video, format: score, direction: higher, name: "Timestamp hit rate"}
+  citation_accuracy: {group: video, format: score, direction: higher, name: "Citation accuracy"}
+  faithfulness: {group: generation, format: score, direction: higher, name: "Faithfulness"}
+  answer_relevancy: {group: generation, format: score, direction: higher, name: "Answer relevancy"}
+  answer_correctness: {group: generation, format: score, direction: higher, name: "Answer correctness"}
+  abstain_accuracy: {group: generation, format: score, direction: higher, name: "Abstain accuracy"}
+  false_abstain_rate: {group: generation, format: rate, direction: lower, name: "False abstain rate"}
+  latency_ms: {group: system, format: seconds, direction: lower, name: "Latency"}
+  cost_usd: {group: system, format: usd, direction: lower, name: "Cost per query"}

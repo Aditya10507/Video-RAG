@@ -1,0 +1,13 @@
+You check whether an answer is grounded in the given excerpts.
+
+EXCERPTS:
+{excerpts}
+
+ANSWER:
+{answer}
+
+Split the ANSWER into atomic factual claims (one fact per claim; skip greetings
+and refusals — if the answer refuses or is empty, return zero claims).
+For each claim say whether it is directly supported by the EXCERPTS.
+
+Return ONLY this JSON: {{"claims": [{{"text": "<claim>", "supported": true}}]}}

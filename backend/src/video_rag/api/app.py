@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from ..config import Settings, from_env
 from ..container import build_container
 from ..logging_config import setup as setup_logging
+from .eval_routes import router as eval_router
 from .routes import router
 
 
@@ -26,6 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.container = build_container(settings)
     app.include_router(router)
+    app.include_router(eval_router)
     if settings.cors_origins:
         from fastapi.middleware.cors import CORSMiddleware
 
@@ -73,6 +75,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         @app.get("/app.js", include_in_schema=False)
         def appjs():
             return FileResponse(str(front / "app.js"), media_type="application/javascript")
+
+        @app.get("/eval", include_in_schema=False)
+        def eval_page():
+            return FileResponse(str(front / "eval.html"), media_type="text/html")
+
+        @app.get("/eval-lib.js", include_in_schema=False)
+        def eval_lib():
+            return FileResponse(str(front / "eval-lib.js"),
+                                media_type="application/javascript")
 
         @app.get("/styles.css", include_in_schema=False)
         def css():

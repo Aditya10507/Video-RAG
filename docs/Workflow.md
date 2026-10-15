@@ -33,6 +33,15 @@ Key rule: the **vector store is the source of truth** for answers; the
 process serves both the API and the page (`VIDEO_RAG_FRONTEND_DIR=frontend`),
 so there is no CORS and no separate frontend server.
 
+Current wiring: catalog is yt-dlp by default with opt-in YouTube Data API
+v3 (`VIDEO_RAG_CATALOG_BACKEND` + `VIDEO_RAG_YOUTUBE_API_KEY`); vectors are
+the local JSON store by default and Qdrant Cloud when
+`VIDEO_RAG_VECTOR_BACKEND=qdrant`; embeddings are Jina
+(`jina-embeddings-v3`, 1024-dim) with a hashing fallback for offline
+tests/smoke; rerank is Jina
+(`jina-reranker-v2-base-multilingual`) with a lexical fallback; answers come
+from the required OpenAI-compatible LLM (live: Groq `qwen/qwen3.8-27b`).
+
 ---
 
 ## 2. Indexing workflow (ingest a link)

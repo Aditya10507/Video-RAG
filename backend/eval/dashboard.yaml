@@ -1,0 +1,15 @@
+# Dashboard wiring. The UI reads metric names, tiles and labels from here.
+headline_metrics: [recall_at_k, faithfulness, answer_correctness, timestamp_hit_rate]
+trend_metrics: [recall_at_k, faithfulness, answer_correctness]
+video_url_template: "https://www.youtube.com/watch?v={video_id}&t={start_s}s"
+failure_causes:
+  failed_to_abstain: "Failed to abstain"
+  visual_not_indexed: "Visual not indexed"
+  retrieval_miss: "Retrieval miss"
+  incomplete_retrieval: "Incomplete retrieval"
+  chunk_boundary_split: "Chunk boundary split"
+  wrong_timestamp: "Wrong timestamp"
+  asr_error: "ASR error"
+  hallucination: "Hallucination"
+  generation_error: "Generation error"
+  unclassified: "Unclassified"
