@@ -3,6 +3,10 @@
 https://github.com/user-attachments/assets/08c7bd36-4dec-46e4-ab7d-d90318545c54
 # EVALUATION VIDEO
 https://github.com/user-attachments/assets/325b0ae6-4491-4388-bee1-2d83d4ec2d70
+# Live evaluation Dashboard 
+<img width="959" height="440" alt="Screenshot 2026-10-20 194808" src="https://github.com/user-attachments/assets/f94bf4d0-ee61-48a3-9b73-d8f221ec31db" />
+<img width="959" height="440" alt="Screenshot 2026-10-20 194748" src="https://github.com/user-attachments/assets/0ff698f0-54a3-4d52-93d7-4f9cbd997563" />
+
 
 # Video RAG for course playlists
 
