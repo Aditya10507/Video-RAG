@@ -41,6 +41,8 @@ class Settings:
     data_dir: str = "data"
     pipeline_version: str = "v1"
 
+    live_trace: bool = True
+
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     api_keys: tuple = ()
@@ -157,6 +159,7 @@ def from_env() -> Settings:
         log_json=_get_bool("VIDEO_RAG_LOG_JSON", True),
         data_dir=_get("VIDEO_RAG_DATA_DIR", "data"),
         pipeline_version=_get("VIDEO_RAG_PIPELINE_VERSION", "v1"),
+        live_trace=_get_bool("VIDEO_RAG_LIVE_TRACE", True),
         api_host=_get("VIDEO_RAG_API_HOST", "127.0.0.1"),
         api_port=_get_int("VIDEO_RAG_API_PORT", 8000),
         api_keys=api_keys,

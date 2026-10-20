@@ -1,0 +1,14 @@
+You check whether each retrieved excerpt helps answer the question.
+
+QUESTION:
+{question}
+
+RETRIEVED EXCERPTS:
+{excerpts}
+
+For each excerpt, say whether it is relevant to answering the QUESTION:
+it directly addresses the question, or gives context the answer could not
+stand without. A passing mention or unrelated filler is NOT relevant.
+
+Return ONLY this JSON: {{"items": [{{"idx": 1, "relevant": true, "reason": "<one short sentence>"}}]}}
+Include one item per excerpt with idx 1..N in the order shown above.

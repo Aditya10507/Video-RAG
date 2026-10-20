@@ -32,6 +32,7 @@ qdrant_data/
 .idea/
 .vscode/
 .DS_Store
+session_log.md
 
 # Eval working docs: agent briefs, discovery notes and local verification
 # records. Kept in the working tree, never pushed.

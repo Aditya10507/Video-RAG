@@ -176,6 +176,9 @@ offline for tests/smoke. The live setup uses Data API + Qdrant Cloud + Jina + Gr
 | GET | `/courses/{course_id}/messages?limit=` | Read the saved chat thread for one course. |
 | DELETE | `/courses/{course_id}/messages` | Clear the chat thread (the "Clear" button). |
 | GET | `/health` | Liveness plus which backends are active. |
+| GET | `/api/live/recent` | Recent live queries with scores (for the dashboard). |
+| GET | `/api/live/query/{id}` | Full per-query trace: chunks, before/after scores, judge scores. |
+| GET | `/api/live/events` | SSE stream of new live queries and landed judge scores. |
 
 Interactive documentation is served at `/docs` outside production.
 
@@ -238,9 +241,33 @@ answers, retrieved chunks, citations, timings and token usage in
 hit rate, abstain rules, latency, cost) score immediately, and LLM-judge
 metrics (faithfulness, relevancy, correctness, context recall, citation
 accuracy) follow when `VIDEO_RAG_JUDGE_MODEL` is set — ideally a different
-model from the generator. Serve the app and open `/eval` for the dashboard
-(runs, compare with paired-bootstrap "within noise" markers, failures by
-likely cause, trend, per-question traces, CSV export, live updates).
+model from the generator.
+
+## Live evaluation dashboard
+
+`/eval` is now a **live, per-query dashboard** (it replaced the old batch-only
+page, which survives as the "Offline check" tab for golden-set correctness).
+Every real `/ask` and `/ask/stream` is recorded as it happens — retrieval
+scores **before and after reranking** (dense cosine, keyword score, pre-rerank
+union rank, rerank score and rank per chunk), the top excerpts the LLM actually
+saw, the answer with its citations, and post-answer judge scores
+(faithfulness, answer relevancy, per-chunk retrieval relevance) computed
+asynchronously so they never delay a response. Retrieved relevance is the
+judge-estimated share of retrieved chunks marked relevant (precision-like), not
+recall. Live quality scores are estimates, not correctness judgments; the same
+LLM currently generates and judges answers, so same-model bias is a known
+limitation. Each metric records its own status, error, judge model, and prompt
+version so a partial judge failure is not presented as a valid score.
+
+Live judging uses a bounded in-process queue (2 workers, up to 100 waiting jobs).
+When full, the query is still answered and its dashboard row explicitly reports
+that scoring was skipped. Traces persist in `data/eval.db`; configure access,
+backup, and retention according to your deployment's privacy requirements.
+
+Set `VIDEO_RAG_LIVE_TRACE=false` to turn recording off. Endpoints:
+`GET /api/live/recent`, `GET /api/live/query/{id}`, and the SSE stream
+`GET /api/live/events`. Storage lives beside the offline eval tables in
+`data/eval.db` (`live_queries`, `live_query_chunks`, `live_query_scores`).
 
 To add a metric: define it in `backend/eval/metrics.yaml` (key, group,
 format, direction), implement the scorer, write rows to `eval_scores` — the

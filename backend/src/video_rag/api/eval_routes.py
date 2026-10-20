@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..eval import aggregates as A
 from ..eval.db import connect
+from ..live import store as live_store
 from .routes import err
 from .security import api_key_header, check_key
 
@@ -397,6 +398,39 @@ async def eval_event_stream(db_path: str):
             await asyncio.sleep(1.0)
     except asyncio.CancelledError:
         pass
+
+
+# --- live per-query traces (the /eval dashboard's Live tab) -----------------
+
+
+@router.get("/live/recent")
+def live_recent(request: Request, x_api_key=Depends(api_key_header), limit: int = 30):
+    _check(request, x_api_key)
+    return {"queries": live_store.recent(_eval_db(request), limit)}
+
+
+@router.get("/live/query/{query_id}")
+def live_query_detail(
+    query_id: int, request: Request, x_api_key=Depends(api_key_header)
+):
+    _check(request, x_api_key)
+    d = live_store.detail(_eval_db(request), query_id)
+    if d is None:
+        return err("not_found", "unknown query", 404)
+    return d
+
+
+@router.get("/live/events")
+async def live_events(request: Request, x_api_key=Depends(api_key_header)):
+    key = x_api_key or request.query_params.get("api_key")
+    try:
+        check_key(_settings(request), key)
+    except HTTPException:
+        return err("unauthorized", "invalid API key", 401)
+    return StreamingResponse(
+        live_store.live_event_stream(_eval_db(request)),
+        media_type="text/event-stream",
+    )
 
 
 @router.get("/events")

@@ -56,6 +56,14 @@ the v1.0 design wording:
   `data/eval.db` (`cli eval-run`), with deterministic scorers, optional
   LLM-judge scoring, failure causes, a REST + SSE API (`/api/*`), and the
   `/eval` dashboard. Thresholds `0.55/0.15` are still uncalibrated (see §13).
+- Live evaluation: `/eval` is now a real-time per-query dashboard (owner
+  request, 2026-10). Every `/ask` and `/ask/stream` is traced — dense/keyword
+  scores, rank before/after reranking, sent-to-LLM excerpts, answer, and
+  post-answer judge scores (faithfulness, relevancy, per-chunk retrieval
+  relevance). The judge is the generator LLM itself (same-model bias known).
+  `video_rag/live/` holds the store + scorer; `VIDEO_RAG_LIVE_TRACE=false`
+  disables recording. The old batch dashboard remains as the Offline check
+  tab for golden-set correctness.
 - 69 offline tests (fake adapters) cover parsing, chunking, timestamps,
   coverage gate, ask service (scoping, streaming, language), library,
   ingest-registry writes, translation, and the eval stack (validation,

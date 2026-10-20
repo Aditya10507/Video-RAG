@@ -7,6 +7,7 @@ metrics:
   mrr: {group: retrieval, format: score, direction: higher, name: "MRR"}
   context_precision_at_k: {group: retrieval, format: score, direction: higher, name: "Context precision"}
   context_recall: {group: retrieval, format: score, direction: higher, name: "Context recall"}
+  retrieval_relevance: {group: retrieval, format: score, direction: higher, name: "Retrieval relevance"}
   timestamp_hit_rate: {group: video, format: score, direction: higher, name: "Timestamp hit rate"}
   citation_accuracy: {group: video, format: score, direction: higher, name: "Citation accuracy"}
   faithfulness: {group: generation, format: score, direction: higher, name: "Faithfulness"}

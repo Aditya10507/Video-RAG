@@ -90,7 +90,10 @@ async def job_stream(job_id: str, request: Request, x_api_key=Depends(api_key_he
 def ask(body: AskRequest, request: Request, x_api_key=Depends(api_key_header)):
     c = _container(request)
     check_key(c.settings, x_api_key)
-    svc = QueryService(c.settings, c.embedder, c.store, c.reranker, c.llm, c.registry)
+    svc = QueryService(
+        c.settings, c.embedder, c.store, c.reranker, c.llm, c.registry,
+        tracer=getattr(c, "tracer", None),
+    )
     try:
         return svc.ask(body.question, body.course_id, body.video_id)
     except ValueError as e:
@@ -139,7 +142,10 @@ def ask_stream(body: AskRequest, request: Request, x_api_key=Depends(api_key_hea
         check_key(c.settings, x_api_key)
     except HTTPException:
         return err("unauthorized", "invalid API key", 401)
-    svc = QueryService(c.settings, c.embedder, c.store, c.reranker, c.llm, c.registry)
+    svc = QueryService(
+        c.settings, c.embedder, c.store, c.reranker, c.llm, c.registry,
+        tracer=getattr(c, "tracer", None),
+    )
 
     def gen():
         try:

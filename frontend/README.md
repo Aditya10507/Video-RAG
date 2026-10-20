@@ -7,7 +7,7 @@ Five files, no build step, no packages, no framework.
 | `index.html` | The page structure: a sidebar with Home and Library views. Home holds index (left) plus ask/answer (right); Library lists indexed courses. |
 | `styles.css` | All styling. Colours are CSS variables at the top of the file. |
 | `app.js` | Calls the API and renders the result. |
-| `eval.html` | Offline eval dashboard: header, status strip, headline tiles, metrics table, type breakdown, failure causes, SVG trend, lowest-questions + trace drawer, SSE with polling fallback. Pure formatting lives in `eval-lib.js`. |
+| `eval.html` | Live evaluation dashboard: the **Live** tab shows every real query as it happens (retrieved chunks with dense/keyword scores, rank before/after reranking, what the LLM saw, answer + citations, and post-answer judge scores arriving over `/api/live/events` SSE with a polling fallback). The **Offline check** tab keeps the golden-set correctness evaluation (runs, compare, metrics table, failures, trace drawer, CSV). Pure formatting lives in `eval-lib.js`. |
 | `eval-lib.js` (+ `eval-lib.test.js`) | Testable formatting rules (numbers, deltas, pills, timestamps). Run: `node --test frontend/eval-lib.test.js`. |
 
 ## How to run it

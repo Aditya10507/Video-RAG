@@ -4,16 +4,29 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Video RAG - offline evaluation</title>
+  <title>Video RAG - live evaluation</title>
   <link rel="stylesheet" href="styles.css" />
   <style>
-    /* Eval-only layout, scoped under #eval-page. */
-    #eval-page { max-width: 1180px; margin: 0 auto; padding: 0 20px 48px;
+    /* Page-scoped styles for the live + offline evaluation views. */
+    .shell-main { padding-bottom: 48px; }
+    .topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 20px; align-items: center; }
+    .topbar h1 { font-size: clamp(20px, 2.2vw, 26px); line-height: 1.2; }
+    #eval-connection { margin: 0; white-space: nowrap; }
+    #eval-page { max-width: 1180px; margin: 0 auto; padding: 0 0 24px;
       display: flex; flex-direction: column; gap: 16px; }
-    #eval-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    #eval-head select, #eval-head input { font: inherit; padding: 7px 10px;
+    #page-live { display: flex; flex-direction: column; gap: 16px; }
+    #eval-head, #eval-offline-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    #eval-head select, #eval-head input, #eval-offline-head select, #eval-offline-head input {
+      font: inherit; padding: 7px 10px;
       border-radius: 8px; border: 1px solid var(--line);
       background: var(--card); color: var(--ink); }
+    .tabbar { display: flex; gap: 6px; margin: 0; }
+    .tabbar button { font: inherit; font-weight: 700; padding: 7px 16px;
+      border-radius: 999px; border: 1px solid var(--line); cursor: pointer;
+      background: var(--card); color: var(--muted); }
+    .tabbar button.active { background: var(--accent); color: #fff;
+      border-color: var(--accent); }
     #eval-run-btn { font: inherit; font-weight: 700; padding: 8px 20px;
       border-radius: 999px; border: 1px solid var(--line);
       background: var(--accent); color: #fff; cursor: pointer; }
@@ -22,19 +35,71 @@
       border: 1px solid var(--line); background: var(--card); color: var(--ink);
       cursor: pointer; }
     #eval-live { font-size: 13px; color: var(--muted); }
-    .eval-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
-    .eval-tiles .card { min-height: 150px; }
-    .eval-big { font-size: 34px; font-weight: 800; margin: 6px 0 2px;
-      font-variant-numeric: tabular-nums; }
-    .eval-delta { font-size: 13px; font-weight: 700; }
-    .eval-delta.up { color: var(--ok); } .eval-delta.down { color: var(--refuse); }
-    .eval-delta.flat { color: var(--muted); }
-    .eval-meter { height: 6px; border-radius: 4px; background: var(--line);
-      margin-top: 8px; position: relative; overflow: visible; }
-    .eval-meter > span { display: block; height: 100%; background: var(--accent);
-      border-radius: 4px; }
-    .eval-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); }
-    .eval-target { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+    /* --- live feed ------------------------------------------------------- */
+    .live-intro { padding: 22px 24px; }
+    .live-toolbar { display: flex; align-items: center; justify-content: space-between;
+      gap: 16px; }
+    .live-toolbar-main, .live-toolbar-actions { display: flex; align-items: center; gap: 14px; }
+    .live-toolbar-actions { gap: 12px; }
+    .live-title { margin: 0 0 4px; font-size: 18px; }
+    .live-description { margin: 14px 0 0; max-width: 760px; }
+    .quality-note { margin-top: 16px; padding: 12px 14px; border: 1px solid var(--line);
+      border-left: 3px solid var(--warn); border-radius: 8px; background: var(--page);
+      color: var(--muted); font-size: 13px; }
+    .quality-note strong { color: var(--ink); }
+    #live-conn { display: flex; align-items: center; gap: 8px; font-size: 13px;
+      color: var(--muted); white-space: nowrap; }
+    #live-conn .livedot { width: 9px; height: 9px; border-radius: 50%;
+      background: var(--muted); display: inline-block; flex: none; }
+    #live-conn.is-live .livedot { background: var(--ok); }
+    #live-conn.is-poll .livedot { background: var(--warn); }
+    #live-conn.is-live .livedot, #live-conn.is-poll .livedot { box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 12%, transparent); }
+    #live-count { margin: 0; }
+    #live-refresh { width: auto; height: auto; padding: 8px 13px; font: inherit;
+      font-size: 13px; line-height: 1.4; }
+    .live-card { border: 1px solid var(--line); border-radius: 10px;
+      padding: 16px 18px; background: var(--card);
+      box-shadow: 0 1px 2px rgb(16 24 40 / 4%); transition: border-color .15s, box-shadow .15s; }
+    .live-card:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+      box-shadow: 0 4px 14px rgb(16 24 40 / 6%); }
+    .live-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 14px; align-items: center; cursor: pointer; border-radius: 6px; }
+    .live-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+    .live-when { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .live-q { min-width: 0; font-weight: 650; font-size: 15px; overflow-wrap: anywhere; }
+    .live-badges { display: flex; gap: 6px; align-items: center; justify-content: flex-end;
+      flex-wrap: wrap; min-width: 0; }
+    .live-detail { margin-top: 10px; border-top: 1px solid var(--line);
+      padding-top: 16px; display: flex; flex-direction: column; gap: 14px; }
+    .live-meta { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+    .live-answer { padding: 8px 10px; border-radius: 8px; background: var(--page);
+      white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+    .score-table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--line);
+      border-radius: 8px; }
+    .score-table { width: 100%; min-width: 700px; border-collapse: collapse; font-size: 13px; }
+    .score-table th, .score-table td { text-align: left; padding: 5px 7px;
+      border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+    .score-table th { color: var(--muted); font-weight: 600; }
+    .score-table tr.senttd { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+    .sent-note { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .cite-line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      margin-top: 6px; }
+    .excerpt { border: 1px solid var(--line); border-radius: 8px;
+      padding: 7px 9px; font-size: 13px; }
+    .excerpt .ex-head { color: var(--muted); font-size: 12px; margin-bottom: 3px; }
+    .excerpt p { margin: 0; user-select: text; }
+    .scoring-wait { font-size: 12px; color: var(--muted); }
+    .judge-line { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+    .judge-line strong { color: var(--ink); }
+    .metric-error { color: var(--refuse); }
+    .metric-na { color: var(--muted); font-style: italic; }
+    .claim-checks { margin: 6px 0 10px 18px; padding: 0 0 0 8px; color: var(--muted);
+      font-size: 12px; }
+    .claim-checks li { margin: 4px 0; }
+
+    /* --- offline check ---------------------------------------------------- */
+    .eval-tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
     .eval-table { width: 100%; border-collapse: collapse; font-size: 14px; }
     .eval-table th, .eval-table td { text-align: left; padding: 7px 8px;
       border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
@@ -46,17 +111,19 @@
     .pill-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
     .pill-bad { color: var(--refuse); background: color-mix(in srgb, var(--refuse) 12%, transparent); }
     .pill-none { color: var(--muted); border: 1px solid var(--line); }
-    .eval-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .score-pill { color: var(--ink); background: var(--page); border: 1px solid var(--line);
+      white-space: nowrap; }
+    .score-pill.pill-bad { color: var(--refuse); }
+    .score-pill.pill-none { color: var(--muted); }
     .bar-row { display: grid; grid-template-columns: 170px 1fr 52px; gap: 10px;
       align-items: center; margin-top: 10px; font-size: 14px; }
-    .bar-track { height: 10px; border-radius: 5px; background: var(--line);
-      position: relative; }
+    .bar-track { height: 10px; border-radius: 5px; background: var(--line); }
     .bar-fill { height: 100%; border-radius: 5px; background: var(--accent); }
     .bar-val { text-align: right; font-variant-numeric: tabular-nums; }
     .qrow { width: 100%; text-align: left; font: inherit; background: none;
       border: none; border-bottom: 1px solid var(--line); padding: 10px 4px;
       cursor: pointer; display: grid;
-      grid-template-columns: 1fr 150px 60px 60px; gap: 8px; align-items: center; }
+      grid-template-columns: 1fr 150px 90px 60px; gap: 8px; align-items: center; }
     .qrow:hover { background: var(--page); }
     .cause-tag { font-size: 12px; padding: 2px 8px; border-radius: 12px;
       background: var(--page); border: 1px solid var(--line); }
@@ -68,78 +135,357 @@
       padding: 8px 10px; margin-top: 8px; font-size: 13px; }
     .eval-chunk.rel { border-color: var(--ok); }
     .eval-snippet { user-select: text; margin: 4px 0 0; }
-    .eval-skel { border-radius: 8px; background: var(--line); min-height: 60px;
-      margin-top: 10px; opacity: 0.5; }
-    @media (max-width: 1100px) { .eval-tiles { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 1023px) { .eval-cols { grid-template-columns: 1fr; } }
-    @media (max-width: 640px) { .eval-tiles { grid-template-columns: 1fr; } }
+    @media (max-width: 640px) { .live-head { grid-template-columns: 1fr; } }
+
+    .badge { display: inline-block; font-size: 11px; font-weight: 700;
+      padding: 2px 9px; border-radius: 20px; }
+    .badge-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+    .badge-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+    .badge-refuse { color: var(--refuse); background: color-mix(in srgb, var(--refuse) 12%, transparent); }
+    .badge-idle { color: var(--muted); border: 1px solid var(--line); }
+    .badge-scored { color: #fff; background: var(--muted); }
+
+    @media (max-width: 780px) {
+      .topbar { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding-top: 18px; }
+      .topbar > div:first-child { grid-column: 1 / -1; }
+      #eval-connection { justify-self: end; }
+      .live-head { grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; }
+      .live-badges { grid-column: 1 / -1; justify-content: flex-start; }
+      .bar-row { grid-template-columns: minmax(90px, 150px) minmax(40px, 1fr) 48px; }
+      .qrow { grid-template-columns: minmax(0, 1fr) 120px 72px 48px; }
+    }
+    @media (max-width: 520px) {
+      .shell-main { padding-right: 14px; padding-left: 14px; }
+      .topbar { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+      .topbar > div:first-child { grid-column: auto; }
+      .topbar h1 { font-size: 21px; }
+      .topbar .tabbar { width: 100%; }
+      .topbar .tabbar button { flex: 1; padding-right: 10px; padding-left: 10px; }
+      #eval-connection { justify-self: start; }
+      .live-intro { padding: 18px; }
+      .live-toolbar { align-items: flex-start; flex-direction: column; }
+      .live-toolbar-main { flex-wrap: wrap; gap: 8px 12px; }
+      .live-toolbar-actions { width: 100%; justify-content: space-between; }
+      .live-card { padding: 14px; }
+      .live-head { grid-template-columns: minmax(0, 1fr); }
+      .live-badges { grid-column: auto; }
+      .eval-tiles { grid-template-columns: 1fr; }
+      .bar-row { grid-template-columns: minmax(78px, 110px) minmax(30px, 1fr) 42px; gap: 7px; font-size: 12px; }
+      .qrow { grid-template-columns: minmax(0, 1fr) auto; }
+      .qrow > :nth-child(2), .qrow > :nth-child(3) { display: none; }
+      #eval-offline-head > * { max-width: 100%; }
+    }
+    /* Compact evaluation workspace */
+    body { overflow: hidden; }
+    .eval-shell { display: grid; grid-template-columns: 224px minmax(0, 1fr);
+      min-height: 100vh; height: 100vh; }
+    .eval-sidebar { display: flex; flex-direction: column; min-height: 0; padding: 22px 14px;
+      background: #111a2b; color: #e7ecf5; }
+    .eval-brand { display: flex; align-items: center; gap: 11px; padding: 0 8px 28px; }
+    .eval-brand-mark { display: grid; place-items: center; width: 36px; height: 36px;
+      flex: none; border-radius: 11px; color: #fff; background: linear-gradient(135deg,#4f7cff,#7658ed);
+      font-size: 17px; font-weight: 700; }
+    .eval-brand-name { font-size: 14px; font-weight: 700; line-height: 1.2; }
+    .eval-brand-sub { margin-top: 3px; color: #9aa8c0; font-size: 9px; letter-spacing: .1em; }
+    .eval-nav-label { margin: 0 10px 9px; color: #73829c; font-size: 10px; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase; }
+    .eval-nav { display: flex; flex-direction: column; gap: 5px; }
+    .eval-nav button { position: relative; display: flex; align-items: center; gap: 10px;
+      width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; text-align: left;
+      color: #aab5c8; background: transparent; font: inherit; font-size: 12px; font-weight: 550; }
+    .eval-nav button:hover { color: #fff; background: #1c2a41; }
+    .eval-nav button.active { color: #fff; background: #253653; }
+    .eval-nav button.active::before { position: absolute; inset: 0 auto 0 -12px; width: 3px;
+      border-radius: 0 3px 3px 0; background: #7194ff; content: ""; }
+    .eval-nav-icon { display: grid; place-items: center; width: 17px; height: 17px;
+      border: 1px solid currentColor; border-radius: 5px; font-size: 10px; }
+    .eval-sidebar-system { margin-top: auto; padding: 16px 9px 4px; border-top: 1px solid #28354b; }
+    .eval-system-row { display: flex; align-items: center; gap: 8px; margin: 12px 0 0;
+      color: #d8e0ec; font-size: 11px; }
+    .eval-system-dot { width: 7px; height: 7px; border-radius: 50%; background: #748198; }
+    .eval-system-dot.ok { background: #42c99a; }
+    .eval-system-dot.warn { background: #e4ac4f; }
+    .eval-sidebar-note { margin: 8px 0 0 15px; color: #8492a9; font-size: 10px; }
+    .eval-main { display: flex; flex-direction: column; min-width: 0; min-height: 0;
+      padding: 20px 28px 18px; overflow: hidden; }
+    .eval-main .topbar { flex: none; max-width: none; width: 100%; margin: 0 auto 16px;
+      padding: 0; display: flex; justify-content: space-between; gap: 18px; }
+    .eval-title-wrap { min-width: 0; }
+    .eval-eyebrow { margin: 0 0 5px; color: var(--muted); font-size: 10px;
+      font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+    .eval-main .topbar h1 { margin: 0; font-size: 23px; }
+    .eval-subtitle { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+    .eval-header-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+    #eval-connection { margin: 0; padding: 7px 11px; border-radius: 20px; font-size: 10px; }
+    #eval-page { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0;
+      width: 100%; max-width: none; margin: 0; padding: 0; overflow: hidden; }
+    #page-live { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; gap: 12px; }
+    .summary-grid { display: grid; flex: none; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
+    .summary-card { min-width: 0; padding: 12px 15px; border: 1px solid var(--line);
+      border-radius: 10px; background: var(--card); }
+    .summary-label { color: var(--muted); font-size: 9px; font-weight: 700;
+      letter-spacing: .07em; text-transform: uppercase; }
+    .summary-value { margin-top: 5px; color: var(--ink); font-size: 21px; font-weight: 700;
+      line-height: 1.1; font-variant-numeric: tabular-nums; }
+    .summary-caption { margin-top: 4px; color: var(--muted); font-size: 10px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .live-workspace { display: grid; flex: 1; grid-template-columns: minmax(260px, .37fr) minmax(0,1fr);
+      gap: 12px; min-width: 0; min-height: 0; }
+    .recent-panel, .selected-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0;
+      margin: 0; padding: 15px; overflow: hidden; }
+    .recent-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+    .recent-panel h2, .selected-panel h2 { margin: 0; font-size: 14px; }
+    .recent-panel-sub { margin: 3px 0 0; color: var(--muted); font-size: 10px; }
+    #live-refresh { flex: none; width: auto; height: auto; padding: 6px 10px; font-size: 11px; }
+    #live-search { width: 100%; min-height: 34px; margin: 12px 0 8px; padding: 7px 10px;
+      border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: #fbfcfe;
+      font: inherit; font-size: 11px; }
+    #live-feed { display: flex; flex: 1; flex-direction: column; gap: 3px; min-height: 0;
+      margin: 0; overflow: auto; }
+    .query-item { display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+      width: 100%; padding: 10px 10px; border: 1px solid transparent; border-radius: 8px;
+      color: var(--ink); background: transparent; text-align: left; cursor: pointer; }
+    .query-item:hover { background: #f7f8fb; }
+    .query-item[aria-pressed="true"] { border-color: #cbd8ff; background: #eef3ff; }
+    .query-item-title { overflow: hidden; font-size: 11px; font-weight: 650; text-overflow: ellipsis;
+      white-space: nowrap; }
+    .query-item-sub { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      min-width: 0; color: var(--muted); font-size: 9px; }
+    .query-item-course { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .query-item-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+    .query-item .badge { padding: 2px 6px; font-size: 8px; }
+    .query-item .score-pill { padding: 2px 5px; font-size: 8px; }
+    .selected-panel { padding: 17px 19px; }
+    #selected-query-detail { display: flex; flex: 1; flex-direction: column; gap: 12px;
+      min-height: 0; overflow: auto; }
+    .selected-placeholder { display: grid; flex: 1; place-items: center; min-height: 180px;
+      color: var(--muted); text-align: center; font-size: 12px; }
+    .detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+    .detail-heading h2 { font-size: 17px; overflow-wrap: anywhere; }
+    .detail-heading-sub { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
+    .detail-status { flex: none; }
+    .detail-meta { color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+    .detail-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+    .detail-metric { min-width: 0; padding: 10px 11px; border: 1px solid var(--line);
+      border-radius: 8px; background: #fbfcfe; }
+    .detail-metric-label { color: var(--muted); font-size: 9px; font-weight: 650;
+      letter-spacing: .04em; text-transform: uppercase; }
+    .detail-metric-value { margin-top: 5px; font-size: 19px; font-weight: 700;
+      font-variant-numeric: tabular-nums; }
+    .detail-metric-note { margin-top: 3px; color: var(--muted); font-size: 9px;
+      overflow-wrap: anywhere; }
+    .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+      margin: 2px 0 0; }
+    .section-heading h3 { margin: 0; font-size: 12px; }
+    .section-heading span { color: var(--muted); font-size: 9px; text-align: right; }
+    .score-table { min-width: 620px; font-size: 10px; }
+    .score-table th, .score-table td { padding: 5px 7px; }
+    .excerpt { font-size: 10px; }
+    .live-answer { font-size: 11px; }
+    .quality-note { flex: none; margin: 0; padding: 8px 11px; font-size: 10px; }
+    .live-description { display: none; }
+    #live-empty { margin: 10px; padding: 12px; }
+    .offline-toolbar { flex: none; }
+    #page-offline { flex: 1; min-height: 0; overflow: auto; }
+    .eval-footer { flex: none; padding-top: 8px; color: #929db0; font-size: 9px; }
+    @media (max-width: 1050px) {
+      .eval-shell { grid-template-columns: 68px minmax(0,1fr); }
+      .eval-sidebar { align-items: center; padding: 18px 8px; }
+      .eval-brand { padding: 0 0 26px; }
+      .eval-brand-copy, .eval-nav-label, .eval-nav-text, .eval-sidebar-system { display: none; }
+      .eval-nav { width: 100%; align-items: center; }
+      .eval-nav button { justify-content: center; width: 44px; height: 44px; padding: 0; }
+      .eval-nav button.active::before { left: -8px; }
+      .eval-main { padding-right: 18px; padding-left: 18px; }
+      .live-workspace { grid-template-columns: minmax(230px,.4fr) minmax(0,1fr); }
+    }
+    @media (max-width: 760px) {
+      body { overflow: auto; }
+      .eval-shell { display: block; height: auto; min-height: 100vh; }
+      .eval-sidebar { display: flex; flex-direction: row; align-items: center; min-height: 0;
+        padding: 8px 12px; }
+      .eval-brand, .eval-sidebar-system, .eval-nav-label { display: none; }
+      .eval-nav { flex-direction: row; gap: 8px; width: 100%; }
+      .eval-nav button { justify-content: center; width: auto; height: auto; min-height: 40px;
+        flex: 1; padding: 8px 10px; font-size: 11px; }
+      .eval-nav button.active::before { display: none; }
+      .eval-nav-text { display: inline; }
+      .eval-main { min-height: 100vh; padding: 15px 14px; overflow: visible; }
+      .eval-main .topbar { align-items: flex-start; margin-bottom: 12px; }
+      .eval-main .topbar h1 { font-size: 19px; }
+      .eval-subtitle { max-width: 280px; font-size: 10px; }
+      #eval-page { flex: none; overflow: visible; }
+      #page-live { flex: none; }
+      .summary-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
+      .summary-card { padding: 10px; }
+      .summary-value { font-size: 18px; }
+      .live-workspace { display: flex; flex-direction: column; min-height: auto; }
+      .recent-panel { min-height: 180px; max-height: 280px; }
+      #live-feed { flex: 1; }
+      .selected-panel { min-height: 420px; overflow: visible; }
+      #selected-query-detail { overflow: visible; }
+      .quality-note { margin-top: 1px; }
+      .eval-footer { padding-bottom: 4px; }
+    }
+    @media (max-width: 480px) {
+      .eval-header-actions { gap: 0; }
+      #eval-connection { padding: 6px 8px; font-size: 9px; }
+      .detail-metrics { grid-template-columns: 1fr; }
+      .detail-metric { display: grid; grid-template-columns: minmax(0,1fr) auto;
+        align-items: center; gap: 3px 8px; }
+      .detail-metric-value { grid-column: 2; grid-row: 1 / span 2; }
+      .detail-metric-note { grid-column: 1; margin: 0; }
+      .detail-heading { flex-direction: column; }
+      .selected-panel { padding: 13px; }
+    }
   </style>
 </head>
 
 <body>
-  <div class="shell-main">
+  <div class="eval-shell">
+    <aside class="eval-sidebar" aria-label="Evaluation navigation">
+      <div class="eval-brand">
+        <span class="eval-brand-mark" aria-hidden="true">V</span>
+        <div class="eval-brand-copy">
+          <div class="eval-brand-name">Video RAG</div>
+          <div class="eval-brand-sub">QUALITY CONSOLE</div>
+        </div>
+      </div>
+      <div class="eval-nav-label">Workspace</div>
+      <nav class="eval-nav">
+        <button id="tab-live" type="button" class="active" aria-current="page"
+          aria-label="Live evaluation" title="Live evaluation">
+          <span class="eval-nav-icon" aria-hidden="true">⌁</span>
+          <span class="eval-nav-text">Live evaluation</span>
+        </button>
+        <button id="tab-offline" type="button" aria-label="Golden-set checks" title="Golden-set checks">
+          <span class="eval-nav-icon" aria-hidden="true">✓</span>
+          <span class="eval-nav-text">Golden-set checks</span>
+        </button>
+      </nav>
+      <div class="eval-sidebar-system">
+        <div class="eval-nav-label">System</div>
+        <div class="eval-system-row">
+          <span id="eval-sidebar-dot" class="eval-system-dot"></span>
+          <span id="eval-sidebar-status">Connecting…</span>
+        </div>
+        <div id="eval-sidebar-queue" class="eval-sidebar-note">Judge queue status unavailable</div>
+      </div>
+    </aside>
+    <main class="eval-main">
     <header class="topbar">
-      <div><h1>Video RAG · Offline evaluation</h1></div>
-      <p id="eval-connection" class="status">Connecting…</p>
+      <div class="eval-title-wrap">
+        <p class="eval-eyebrow">Workspace / Quality</p>
+        <h1 id="eval-page-title">Live evaluation</h1>
+        <p id="eval-page-subtitle" class="eval-subtitle">Inspect retrieval and answer quality for real user queries.</p>
+      </div>
+      <div class="eval-header-actions">
+        <p id="eval-connection" class="status">Connecting…</p>
+      </div>
     </header>
 
     <div id="eval-page">
-      <section class="card">
-        <div id="eval-head">
-          <span class="hint" id="eval-run-label">No runs yet</span>
-          <label class="hint" for="eval-run-sel">Run</label>
-          <select id="eval-run-sel"></select>
-          <label class="hint" for="eval-cmp-sel">Compare with</label>
-          <select id="eval-cmp-sel"></select>
-          <a id="eval-csv" class="hint" href="#">Export CSV</a>
-          <button id="eval-run-btn" type="button">Run eval</button>
-          <button id="eval-cancel-btn" type="button" hidden>Cancel run</button>
-          <span id="eval-live" class="hint"></span>
+      <!-- ================= LIVE TAB ================= -->
+      <section id="page-live">
+        <div class="summary-grid" aria-label="Recent query summary">
+          <section class="summary-card">
+            <div class="summary-label">Recent queries</div>
+            <div id="summary-recent" class="summary-value">—</div>
+            <div class="summary-caption">Latest queries loaded</div>
+          </section>
+          <section class="summary-card">
+            <div class="summary-label">Answered</div>
+            <div id="summary-answered" class="summary-value">—</div>
+            <div class="summary-caption">Among recent queries</div>
+          </section>
+          <section class="summary-card">
+            <div class="summary-label">Needs review</div>
+            <div id="summary-review" class="summary-value">—</div>
+            <div class="summary-caption">Partial, not covered, or errors</div>
+          </section>
+          <section class="summary-card">
+            <div class="summary-label">Judge backlog</div>
+            <div id="summary-queue" class="summary-value">—</div>
+            <div class="summary-caption">Queued or running in recent queries</div>
+          </section>
         </div>
-        <div id="eval-config-chips" class="hint" style="margin-top:8px"></div>
-        <div id="eval-status-strip" class="hint" style="margin-top:8px" hidden></div>
+
+        <section class="live-workspace">
+          <section class="card recent-panel" aria-label="Recent queries">
+            <div class="recent-panel-head">
+              <div>
+                <h2>Recent queries</h2>
+                <p id="live-count" class="recent-panel-sub">Loading recent queries…</p>
+              </div>
+              <button id="live-refresh" type="button" class="icon-button text-button">Refresh</button>
+            </div>
+            <input id="live-search" type="search" placeholder="Search questions or courses…" autocomplete="off" />
+            <section id="live-empty" class="card" hidden>
+              <h2>No matching queries</h2>
+              <p class="hint">Try another search or ask a question on the <a href="/">main page</a>.</p>
+            </section>
+            <div id="live-feed" aria-label="Query list"></div>
+          </section>
+          <section class="card selected-panel" aria-label="Selected query details">
+            <div id="selected-query-detail">
+              <div class="selected-placeholder">Select a query to inspect its retrieval evidence and answer.</div>
+            </div>
+          </section>
+        </section>
+        <div class="quality-note">
+          <strong>Metric note:</strong> retrieval relevance is judge-estimated precision-like relevance, not recall.
+          Live quality scores are model estimates, not correctness; use golden-set checks for correctness comparisons.
+        </div>
       </section>
 
-      <section id="eval-empty" class="card" hidden>
-        <h2>No runs yet</h2>
-        <p class="hint">Run your first evaluation to populate this page. Either press
-        <b>Run eval</b> above, or from a terminal:</p>
-        <p><code id="eval-cli-hint">PYTHONPATH=backend\src .\.venv\Scripts\python.exe -m video_rag.cli eval-run --dataset backend\eval\golden_set.jsonl --label first</code></p>
+      <!-- ================= OFFLINE CHECK TAB ================= -->
+      <section id="page-offline" hidden>
+        <section class="card">
+          <div id="eval-offline-head">
+            <span class="hint" id="eval-run-label">No runs yet</span>
+            <label class="hint" for="eval-run-sel">Run</label>
+            <select id="eval-run-sel"></select>
+            <label class="hint" for="eval-cmp-sel">Compare with</label>
+            <select id="eval-cmp-sel"></select>
+            <a id="eval-csv" class="hint" href="#">Export CSV</a>
+            <button id="eval-run-btn" type="button">Run eval</button>
+            <button id="eval-cancel-btn" type="button" hidden>Cancel run</button>
+            <button id="offline-refresh" type="button">Refresh</button>
+          </div>
+          <div id="eval-config-chips" class="hint" style="margin-top:8px"></div>
+          <div id="eval-status-strip" class="hint" style="margin-top:8px" hidden></div>
+        </section>
+
+        <section id="eval-empty" class="card" hidden>
+          <h2>No runs yet</h2>
+          <p class="hint">Run your first golden-set evaluation to populate this tab. Either press
+          <b>Run eval</b> above, or from a terminal:</p>
+          <p><code id="eval-cli-hint">PYTHONPATH=backend\src .\.venv\Scripts\python.exe -m video_rag.cli eval-run --dataset backend\eval\golden_set.jsonl --label first</code></p>
+          <p class="hint">Judge metrics (incl. correctness) also need <b>VIDEO_RAG_JUDGE_MODEL</b> and the
+          classifier thresholds in <b>backend/eval/eval.yaml</b> — still unset, by design.</p>
+        </section>
+
+        <section class="card">
+          <h2>All metrics</h2>
+          <p class="hint">Current run against the comparison run and your targets.</p>
+          <div id="eval-metrics-table"></div>
+        </section>
+
+        <div class="eval-tiles">
+          <section class="card">
+            <h2>Lowest-scoring questions</h2>
+            <p class="hint">Open a row for the query, retrieved chunks and the answer.</p>
+            <div id="eval-lowest"></div>
+          </section>
+          <section class="card">
+            <h2>Failures by likely cause</h2>
+            <div id="eval-failures"></div>
+          </section>
+        </div>
       </section>
-
-      <section id="eval-tiles" class="eval-tiles"></section>
-
-      <section class="card">
-        <h2>All metrics</h2>
-        <p class="hint">Current run against the comparison run and your targets.</p>
-        <div id="eval-metrics-table"></div>
-      </section>
-
-      <div class="eval-cols">
-        <section class="card">
-          <h2>Answer correctness by question type</h2>
-          <div id="eval-by-type"></div>
-        </section>
-        <section class="card">
-          <h2>Failures by likely cause</h2>
-          <div id="eval-failures"></div>
-        </section>
-      </div>
-
-      <div class="eval-cols">
-        <section class="card">
-          <h2>Trend across runs</h2>
-          <div id="eval-trend"></div>
-          <button id="eval-trend-toggle" type="button" class="hint">View as table</button>
-          <div id="eval-trend-table" hidden></div>
-        </section>
-        <section class="card">
-          <h2>Lowest-scoring questions</h2>
-          <p class="hint">Open a row for the query, retrieved chunks with timestamps, and the answer.</p>
-          <div id="eval-lowest"></div>
-        </section>
-      </div>
     </div>
+    <footer class="eval-footer">Evaluation workspace · query traces and judge scores are estimates; review evidence before acting.</footer>
+    </main>
   </div>
 
   <aside id="eval-drawer" hidden aria-label="Question trace">
@@ -149,20 +495,26 @@
 
   <script src="eval-lib.js"></script>
   <script>
-    // Dashboard: REST + SSE (fetch stream, 3s polling fallback). textContent only.
+    // Live dashboard: per-query traces over /api/live/* (fetch SSE + 3s polling
+    // fallback) and the offline golden-set correctness panel over /api/runs*.
+    // textContent only — external titles and excerpts never become markup.
     (function () {
       "use strict";
       var API_BASE = window.location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
       var API_KEY = "";
       try { API_KEY = (window.sessionStorage.getItem("video-rag.api-key") || "").trim(); }
       catch (e) { API_KEY = ""; }
-      var BLUE = "var(--accent)", SERIES = ["#2f6fed", "#e8734a", "#3aa79b", "#e0b400",
-        "#c65df0", "#3f9e4d", "#8a63ff", "#d63a3a"];
 
-      var state = { runId: null, compareId: null, cfg: null, runs: [],
-        lastEventAt: 0, sseOk: false };
+      var state = {
+        queries: [],
+        selectedQueryId: null,
+        details: {},      // id -> detail object
+        queryFilter: "",
+        metrics: null,    // metrics registry from /api/config/dashboard
+        targets: null     // offline targets from the same config
+      };
       var $ = function (id) { return document.getElementById(id); };
-      function params() { return new URLSearchParams(window.location.search); }
+
       function headers(extra) {
         var h = extra || {};
         if (API_KEY) { h["X-API-Key"] = API_KEY; }
@@ -173,69 +525,568 @@
         if (!r.ok) { throw new Error("HTTP " + r.status + " " + path); }
         return r.json();
       }
-      function fmt(metric, value) {
-        return window.EvalLib.fmtMetric(state.cfg.metrics, metric, value);
+      function fmtNum(v, dp) {
+        if (v === null || v === undefined || isNaN(v)) { return "—"; }
+        return Number(v).toFixed(dp === undefined ? 2 : dp);
       }
-      function missTip() { return "Not computed or not applicable for this run."; }
-      function show(el, text, tip) {
-        el.textContent = text;
-        if (tip) { el.title = tip; }
+      function mfmt(name, v) {
+        if (!state.metrics) { return fmtNum(v, 2); }
+        return window.EvalLib.fmtMetric(state.metrics, name, v) || "—";
+      }
+      function badge(txt, cls) {
+        var s = document.createElement("span");
+        s.textContent = txt;
+        s.className = "badge " + cls;
+        return s;
+      }
+      var STATUS_BADGE = {
+        answered: ["answered", "badge-ok"], partial: ["partial", "badge-warn"],
+        not_covered: ["not covered", "badge-refuse"], error: ["error", "badge-refuse"],
+        running: ["running…", "badge-idle"]
+      };
+      function relTime(iso) {
+        var t = Date.parse(iso);
+        if (isNaN(t)) { return ""; }
+        var s = Math.max(0, Math.round((Date.now() - t) / 1000));
+        if (s < 60) { return "just now"; }
+        if (s < 3600) { return Math.floor(s / 60) + "m ago"; }
+        return Math.floor(s / 3600) + "h ago";
+      }
+      function scorePill(id, m) {
+        var v = m.value;
+        var s = document.createElement("span");
+        s.className = "pill score-pill";
+        if (m.status === "error") {
+          s.classList.add("pill-bad");
+          s.textContent = LIVE_SHORT_LABELS[id] + " !";
+          s.title = "Judge metric failed: " + (m.error || "unknown error");
+        } else if (m.status === "not_applicable") {
+          s.classList.add("pill-none");
+          s.textContent = LIVE_SHORT_LABELS[id] + " N/A";
+          s.title = "Not applicable to this query.";
+        } else if (v === null || v === undefined) {
+          s.classList.add("pill-none");
+          s.textContent = LIVE_SHORT_LABELS[id] + " —";
+          s.title = "Not computed (judge failed or not applicable).";
+        } else {
+          s.textContent = LIVE_SHORT_LABELS[id] + " " + mfmt(id, v);
+          s.title = LIVE_LABELS[id] + "; automated estimate, not a correctness label.";
+        }
+        return s;
+      }
+      var LIVE_METRICS = ["faithfulness", "answer_relevancy", "retrieval_relevance"];
+      var LIVE_LABELS = {
+        faithfulness: "Faithfulness estimate",
+        answer_relevancy: "Answer relevancy estimate",
+        retrieval_relevance: "Retrieved relevance (precision-like)"
+      };
+      var LIVE_SHORT_LABELS = {
+        faithfulness: "Faith",
+        answer_relevancy: "Answer",
+        retrieval_relevance: "Retrieved"
+      };
+
+      // =================== LIVE TAB ===================
+      async function refreshLive() {
+        var queries;
+        try {
+          queries = (await get("/api/live/recent?limit=30")).queries || [];
+        } catch (e) {
+          setConn("is-poll", "API unavailable");
+          $("eval-sidebar-dot").className = "eval-system-dot warn";
+          $("eval-sidebar-status").textContent = "API unavailable";
+          $("eval-sidebar-queue").textContent = e.message;
+          return;
+        }
+        state.queries = queries;
+        if (!queries.some(function (q) { return q.id === state.selectedQueryId; })) {
+          state.selectedQueryId = queries.length ? queries[0].id : null;
+        }
+        renderLiveSummary();
+        renderQueryList();
+        if (state.selectedQueryId !== null) {
+          loadDetail(state.selectedQueryId);
+        } else {
+          var empty = document.createElement("div");
+          empty.className = "selected-placeholder";
+          empty.textContent = "No queries yet. Ask a question in the app to see its retrieval evidence and answer here.";
+          $("selected-query-detail").replaceChildren(empty);
+        }
+      }
+      function removeChildren(node) { while (node.firstChild) { node.removeChild(node.firstChild); } }
+
+      function renderLiveSummary() {
+        var queries = state.queries;
+        var answered = queries.filter(function (q) { return q.status === "answered"; }).length;
+        var review = queries.filter(function (q) {
+          return ["partial", "not_covered", "error"].indexOf(q.status) !== -1;
+        }).length;
+        var queued = queries.filter(function (q) {
+          return ["pending", "queued", "running"].indexOf(q.scoring_status) !== -1;
+        }).length;
+        $("summary-recent").textContent = String(queries.length);
+        $("summary-answered").textContent = String(answered);
+        $("summary-review").textContent = String(review);
+        $("summary-queue").textContent = String(queued);
+        $("live-count").textContent = queries.length
+          ? queries.length + " of latest " + (queries.length === 30 ? "30" : queries.length)
+          : "No queries captured yet";
+        $("eval-sidebar-queue").textContent = queued + " scoring in recent queries";
       }
 
-      // ---- header: runs, compare, config chips, status strip ----
-      async function loadRuns() {
-        var body = await get("/api/runs?limit=50");
-        state.runs = body.runs || [];
-        var q = params();
-        state.runId = q.get("run") || (state.runs[0] && state.runs[0].id) || null;
-        var done = state.runs.filter(function (r) { return r.status === "completed"; });
-        var prev = done.filter(function (r) { return r.id !== state.runId; })[0];
-        state.compareId = q.get("compare") || (prev && prev.id) || null;
-        fillSelect($("eval-run-sel"), state.runs, state.runId);
-        fillSelect($("eval-cmp-sel"), state.runs, state.compareId, true);
-        $("eval-csv").href = state.runId
-          ? API_BASE + "/api/runs/" + state.runId + "/export.csv" : "#";
-        var run = state.runs.filter(function (r) { return r.id === state.runId; })[0];
-        if (!run && state.runId) {
-          // Stale ?run= link, or a brand-new run whose row is not listed yet:
-          // fall back instead of crashing on run.label below.
-          state.runId = (state.runs[0] && state.runs[0].id) || null;
-          syncUrl(state.runId, state.compareId);
-          run = state.runs.filter(function (r) { return r.id === state.runId; })[0];
-        }
-        if (!state.runs.length) {
-          $("eval-empty").hidden = false;
-          $("eval-run-label").textContent = "No runs yet";
-          return null;
-        }
-        $("eval-empty").hidden = true;
-        var cfg = (run && run.config) || {};
-        $("eval-run-label").textContent =
-          "Run " + (run.label || run.id.slice(0, 8)) + " · " +
-          (run.n_total || "?") + " questions";
-        $("eval-config-chips").textContent =
-          "Top-k: " + cfg.rerank_top_k + " · Reranker: on · Judge: " +
-          (cfg.judge_model || "off") + (cfg.judge_warning ? " (" + cfg.judge_warning + ")" : "");
-        var strip = $("eval-status-strip");
-        var st = run.display_status || run.status;
-        if (st === "completed") { strip.hidden = true; }
-        else {
-          strip.hidden = false;
-          strip.textContent = "Status: " + st + " · answered " +
-            (run.n_answered || 0) + "/" + (run.n_total || "?") + ", scored " +
-            (run.n_scored || 0) + "/" + (run.n_total || "?") +
-            ". Numbers are partial until the run completes." +
-            (run.error ? " Error: " + run.error : "");
-        }
-        var active = state.runs.some(function (r) {
-          return r.status === "running" || r.status === "queued";
+      function renderQueryList() {
+        var holder = $("live-feed");
+        removeChildren(holder);
+        var needle = state.queryFilter.trim().toLowerCase();
+        var queries = state.queries.filter(function (q) {
+          return !needle || (q.question + " " + (q.course_id || "")).toLowerCase().indexOf(needle) !== -1;
         });
-        $("eval-run-btn").disabled = active;
-        $("eval-run-btn").title = active ? "A run is already active" : "";
-        var sel = state.runs.filter(function (r) { return r.id === state.runId; })[0];
-        var cancellable = !!sel && (sel.status === "running" || sel.status === "queued");
-        $("eval-cancel-btn").hidden = !cancellable;
-        return run;
+        $("live-empty").hidden = queries.length !== 0;
+        if (!queries.length) {
+          $("live-empty").querySelector("h2").textContent =
+            state.queries.length ? "No matching queries" : "No queries yet";
+          $("live-empty").querySelector("p").textContent = state.queries.length
+            ? "Try a different search."
+            : "Ask a question in the app and its trace will appear here.";
+        }
+        $("live-search").setAttribute("aria-label", "Search recent questions or courses");
+        queries.forEach(function (q) { holder.appendChild(liveCard(q)); });
+      }
+
+      function liveCard(q) {
+        var card = document.createElement("button");
+        card.type = "button";
+        card.className = "query-item";
+        card.setAttribute("aria-pressed", String(q.id === state.selectedQueryId));
+        card.setAttribute("aria-label", "Inspect query: " + q.question);
+        var qq = document.createElement("span");
+        qq.className = "query-item-title";
+        qq.textContent = q.question;
+        var sub = document.createElement("span");
+        sub.className = "query-item-sub";
+        var course = document.createElement("span");
+        course.className = "query-item-course";
+        course.textContent = String(q.course_id || "Course unavailable").replace(/^video:/, "");
+        var when = document.createElement("span");
+        when.textContent = relTime(q.created_at);
+        when.title = q.created_at;
+        sub.appendChild(course);
+        sub.appendChild(when);
+        var meta = document.createElement("div");
+        meta.className = "query-item-meta";
+        var b = STATUS_BADGE[(q.status || "running")] || STATUS_BADGE.running;
+        meta.appendChild(badge(b[1] === "running" ? "running…" : (STATUS_BADGE[q.status] || [q.status])[0], b[1]));
+        if (q.scoring_status === "queued") { meta.appendChild(badge("judge queued", "badge-scored")); }
+        else if (q.scoring_status === "running" || q.scoring_status === "pending") {
+          meta.appendChild(badge("scoring…", "badge-scored"));
+        } else if (q.scoring_status === "partial") {
+          meta.appendChild(badge("partial scores", "badge-warn"));
+        } else if (q.scoring_status === "error") {
+          meta.appendChild(badge("scoring failed", "badge-refuse"));
+        } else if (q.scoring_status === "overloaded") {
+          meta.appendChild(badge("scores skipped: busy", "badge-warn"));
+        }
+        LIVE_METRICS.forEach(function (m) {
+          if (q.scores && q.scores[m]) { meta.appendChild(scorePill(m, q.scores[m])); }
+        });
+        card.appendChild(qq);
+        card.appendChild(sub);
+        card.appendChild(meta);
+        card.addEventListener("click", function () {
+          state.selectedQueryId = q.id;
+          renderQueryList();
+          loadDetail(q.id);
+        });
+        return card;
+      }
+
+      async function loadDetail(qid) {
+        if (state.details[qid]) { renderDetail(qid); }
+        var d;
+        try {
+          d = await get("/api/live/query/" + qid);
+        } catch (e) {
+          if (state.selectedQueryId === qid) {
+            $("selected-query-detail").textContent = "Unable to load query details: " + e.message;
+          }
+          return;
+        }
+        state.details[qid] = d;
+        renderDetail(qid);
+      }
+
+      function renderDetail(qid) {
+        if (state.selectedQueryId !== qid) { return; }
+        var body = $("selected-query-detail");
+        var d = state.details[qid];
+        if (!d) { return; }
+        removeChildren(body);
+
+        var heading = document.createElement("div");
+        heading.className = "detail-heading";
+        var titleBlock = document.createElement("div");
+        var eyebrow = document.createElement("div");
+        eyebrow.className = "eval-eyebrow";
+        eyebrow.textContent = "Query detail";
+        var title = document.createElement("h2");
+        title.textContent = d.question || "Untitled query";
+        var subline = document.createElement("p");
+        subline.className = "detail-heading-sub";
+        var selectedQuery = state.queries.filter(function (q) { return q.id === qid; })[0];
+        subline.textContent = (d.course_id || "Course unavailable").replace(/^video:/, "") +
+          " · " + (selectedQuery ? relTime(selectedQuery.created_at) : "");
+        titleBlock.appendChild(eyebrow);
+        titleBlock.appendChild(title);
+        titleBlock.appendChild(subline);
+        var status = STATUS_BADGE[d.status] || ["running…", "badge-idle"];
+        var statusBadge = badge(status[0], status[1]);
+        statusBadge.classList.add("detail-status");
+        heading.appendChild(titleBlock);
+        heading.appendChild(statusBadge);
+        body.appendChild(heading);
+
+        var meta = document.createElement("div");
+        meta.className = "detail-meta";
+        var parts = [];
+        if (d.effective_question && d.effective_question !== d.question) {
+          parts.push("Searched as: " + d.effective_question);
+        }
+        if (d.gate) {
+          parts.push("gate " + d.gate + (d.verify_verdict ? " → " + d.verify_verdict : ""));
+        }
+        if (d.lang && d.lang !== "english") { parts.push("reply in " + d.lang); }
+        if (d.course_id) { parts.push(String(d.course_id).replace(/^video:/, "video ")); }
+        var t = d.timings_ms || {};
+        if (t.total_ms !== undefined) {
+          parts.push("retrieve " + fmtNum((t.retrieve_ms || 0) / 1000, 1) + "s, answer " +
+            fmtNum(((t.verify_ms || 0) + (t.generate_ms || 0)) / 1000, 1) + "s, total " +
+            fmtNum(t.total_ms / 1000, 1) + "s");
+        }
+        parts.push("top score " + fmtNum(d.top_score, 2));
+        meta.textContent = parts.join(" · ");
+        body.appendChild(meta);
+
+        var metricGrid = document.createElement("div");
+        metricGrid.className = "detail-metrics";
+        var metricInfo = [
+          ["retrieval_relevance", "Retrieved relevance", "Judge-estimated relevant share · precision-like, not recall"],
+          ["faithfulness", "Faithfulness estimate", "Claims supported by the excerpts sent to the model"],
+          ["answer_relevancy", "Answer relevancy", "How directly the answer addresses the question"]
+        ];
+        metricInfo.forEach(function (info) {
+          var metric = info[0], score = (d.scores || {})[metric];
+          var item = document.createElement("section");
+          item.className = "detail-metric";
+          var label = document.createElement("div");
+          label.className = "detail-metric-label";
+          label.textContent = info[1];
+          var value = document.createElement("div");
+          value.className = "detail-metric-value";
+          var note = document.createElement("div");
+          note.className = "detail-metric-note";
+          note.textContent = info[2];
+          if (score && score.status === "done" && score.value !== null) {
+            value.textContent = fmtNum(score.value, 2);
+            var source = [score.judge_model, score.prompt_version ? "prompt " + score.prompt_version : ""]
+              .filter(Boolean).join(" · ");
+            if (source) { note.textContent += " · " + source; }
+          } else if (score && score.status === "error") {
+            value.textContent = "Failed";
+            value.classList.add("metric-error");
+            note.textContent = score.error || "Judge returned an invalid result.";
+          } else if (score && score.status === "not_applicable") {
+            value.textContent = "N/A";
+            note.textContent = "Not applicable to this query.";
+          } else if (d.scoring_status === "pending" || d.scoring_status === "queued" ||
+                     d.scoring_status === "running") {
+            value.textContent = "…";
+            note.textContent = "Waiting for asynchronous judge scoring.";
+          } else {
+            value.textContent = "—";
+            note.textContent = "No metric result was recorded.";
+          }
+          item.appendChild(label);
+          item.appendChild(value);
+          item.appendChild(note);
+          metricGrid.appendChild(item);
+        });
+        body.appendChild(metricGrid);
+
+        var chunkHeading = document.createElement("div");
+        chunkHeading.className = "section-heading";
+        var chunkTitle = document.createElement("h3");
+        chunkTitle.textContent = "Retrieval evidence";
+        var chunks = d.chunks || [];
+        var nSent = chunks.filter(function (c) { return c.sent_to_llm; }).length;
+        var chunkSummary = document.createElement("span");
+        chunkSummary.textContent = chunks.length + " candidates · top " + nSent + " sent to the answer model";
+        chunkHeading.appendChild(chunkTitle);
+        chunkHeading.appendChild(chunkSummary);
+        body.appendChild(chunkHeading);
+
+        // --- chunks: before/after reranking ---
+        var tableWrap = document.createElement("div");
+        tableWrap.className = "score-table-wrap";
+        var tbl = document.createElement("table");
+        tbl.className = "score-table";
+        var head = document.createElement("tr");
+        ["#", "Chunk / timestamp", "Dense", "Keyword", "Rerank", "Rank", "Prompt", "Judge"].forEach(function (h) {
+          var th = document.createElement("th"); th.textContent = h; head.appendChild(th);
+        });
+        tbl.appendChild(head);
+        var showAll = Boolean(state.showAllChunks && state.showAllChunks[qid]);
+        var shownChunks = showAll ? chunks : chunks.slice(0, 10);
+        shownChunks.forEach(function (c) {
+          var tr = document.createElement("tr");
+          if (c.sent_to_llm) { tr.className = "senttd"; }
+          var chunkName = document.createElement("td");
+          chunkName.textContent = (c.title || c.video_id) + " @ " +
+            window.EvalLib.fmtTime(c.start_s || 0);
+          chunkName.title = (c.text || "").slice(0, 500);
+          var cells = [
+            String(c.idx),
+            fmtNum(c.dense_score, 3),
+            fmtNum(c.keyword_score, 3),
+            fmtNum(c.rerank_score, 3),
+            (c.union_rank || "—") + " → " + (c.idx || "—"),
+            c.sent_to_llm ? "Sent" : "—",
+            c.relevance === null || c.relevance === undefined
+              ? "Pending" : (c.relevance > 0 ? "Relevant" : "Not relevant")
+          ];
+          var indexCell = document.createElement("td");
+          indexCell.textContent = cells[0];
+          tr.appendChild(indexCell);
+          tr.appendChild(chunkName);
+          cells.slice(1).forEach(function (txt) {
+            var td = document.createElement("td");
+            td.textContent = txt;
+            tr.appendChild(td);
+          });
+          tbl.appendChild(tr);
+        });
+        tableWrap.appendChild(tbl);
+        body.appendChild(tableWrap);
+        if (chunks.length > 10) {
+          var more = document.createElement("button");
+          more.type = "button";
+          more.className = "text-button";
+          more.textContent = showAll ? "Show top 10 only" : "Show all " + chunks.length + " candidates";
+          more.addEventListener("click", function () {
+            if (!state.showAllChunks) { state.showAllChunks = {}; }
+            state.showAllChunks[qid] = !showAll;
+            renderDetail(qid);
+          });
+          body.appendChild(more);
+        }
+        var sentNote = document.createElement("div");
+        sentNote.className = "detail-meta";
+        sentNote.textContent = chunks.length
+          ? "Shaded rows were sent to the answer model. Score columns are distinct ranking signals; a dash means that retrieval source returned no score."
+          : "No chunks were retrieved for this query.";
+        body.appendChild(sentNote);
+
+        // --- the excerpts the LLM actually saw ---
+        var sentChunks = chunks.filter(function (c) { return c.sent_to_llm; });
+        if (sentChunks.length && d.answer) {
+          var context = document.createElement("details");
+          context.className = "excerpt";
+          var contextSummary = document.createElement("summary");
+          contextSummary.textContent = "Inspect the " + sentChunks.length + " excerpts sent to the answer model";
+          context.appendChild(contextSummary);
+          sentChunks.forEach(function (c) {
+            var e = document.createElement("p");
+            e.className = "eval-snippet";
+            e.textContent = (c.title || c.video_id) + " · " +
+              window.EvalLib.fmtTime(c.start_s || 0) + " — " + (c.text || "").slice(0, 600);
+            context.appendChild(e);
+          });
+          body.appendChild(context);
+        }
+
+        // --- generated answer and citations ---
+        var answerHeading = document.createElement("div");
+        answerHeading.className = "section-heading";
+        var answerTitle = document.createElement("h3");
+        answerTitle.textContent = "Generated answer";
+        var timing = document.createElement("span");
+        timing.textContent = t.generate_ms !== undefined
+          ? fmtNum(t.generate_ms / 1000, 1) + "s generation · " + sentChunks.length + " excerpts used"
+          : sentChunks.length + " excerpts used";
+        answerHeading.appendChild(answerTitle);
+        answerHeading.appendChild(timing);
+        body.appendChild(answerHeading);
+        if (d.answer) {
+          var ans = document.createElement("div");
+          ans.className = "live-answer";
+          ans.textContent = d.answer;
+          body.appendChild(ans);
+          var cites = document.createElement("div");
+          cites.className = "cite-line";
+          var sources = [d.primary_source].concat(d.also_mentioned || []);
+          sources.forEach(function (s) {
+            if (!s || !s.video_id) { return; }
+            var a = document.createElement("a");
+            a.href = s.url;
+            a.target = "_blank"; a.rel = "noopener noreferrer";
+            a.className = "hint";
+            a.textContent = (s.video_title || s.video_id) + " at " + (s.timestamp_label || "");
+            cites.appendChild(a);
+          });
+          if (d.message) {
+            var msg = document.createElement("span");
+            msg.className = "hint";
+            msg.textContent = d.message;
+            cites.appendChild(msg);
+          }
+          body.appendChild(cites);
+        } else {
+          var noAnswer = document.createElement("div");
+          noAnswer.className = "live-answer";
+          noAnswer.textContent = d.message || "No answer was generated for this query.";
+          body.appendChild(noAnswer);
+          if ((d.covers || []).length) {
+            var cov = document.createElement("div");
+            cov.className = "detail-meta";
+            cov.textContent = "Course covers: " + d.covers.slice(0, 4).join(" · ");
+            body.appendChild(cov);
+          }
+        }
+
+        // --- metric-level scoring status and judge rationale ---
+        var judgeHeading = document.createElement("div");
+        judgeHeading.className = "section-heading";
+        var judgeTitle = document.createElement("h3");
+        judgeTitle.textContent = "Judge diagnostics";
+        var scoringLabels = {
+          pending: "Waiting", queued: "Queued", running: "Running", partial: "Partial",
+          done: "Complete", error: "Failed", overloaded: "Skipped · queue full"
+        };
+        var judgeState = document.createElement("span");
+        judgeState.textContent = scoringLabels[d.scoring_status] || d.scoring_status || "Status unavailable";
+        judgeHeading.appendChild(judgeTitle);
+        judgeHeading.appendChild(judgeState);
+        body.appendChild(judgeHeading);
+        LIVE_METRICS.forEach(function (m) {
+          var row = document.createElement("p");
+          row.className = "judge-line";
+          var sc = (d.scores || {})[m];
+          var label = LIVE_LABELS[m] || m;
+          if (!sc) {
+            row.classList.add("metric-na");
+            row.textContent = label + ": " +
+              (d.scoring_status === "pending" || d.scoring_status === "queued" ||
+                d.scoring_status === "running" ? "waiting for judge" : "not recorded");
+          } else if (sc.status === "error") {
+            row.classList.add("metric-error");
+            row.textContent = label + ": failed — " + (sc.error || "no error detail");
+          } else if (sc.status === "not_applicable") {
+            row.classList.add("metric-na");
+            row.textContent = label + ": not applicable";
+          } else {
+            row.textContent = label + ": " + fmtNum(sc.value, 2) +
+              (sc.detail && sc.detail.reasoning ? " — " + sc.detail.reasoning :
+                sc.detail && sc.detail.claims ? " — " + sc.detail.claims.length + " claims graded" :
+                  sc.detail && sc.detail.relevant !== undefined
+                    ? " — " + sc.detail.relevant + " of " + sc.detail.of + " chunks relevant" : "");
+            if (sc.judge_model) {
+              row.appendChild(document.createTextNode(" · " + sc.judge_model));
+            }
+            if (sc.prompt_version) {
+              row.appendChild(document.createTextNode(" · prompt " + sc.prompt_version));
+            }
+          }
+          body.appendChild(row);
+          if (m === "faithfulness" && sc && sc.status === "done" &&
+              sc.detail && Array.isArray(sc.detail.claims) && sc.detail.claims.length) {
+            var claims = document.createElement("details");
+            var claimSummary = document.createElement("summary");
+            claimSummary.textContent = "Review " + sc.detail.claims.length + " claim checks";
+            claims.appendChild(claimSummary);
+            var claimList = document.createElement("ul");
+            claimList.className = "claim-checks";
+            sc.detail.claims.forEach(function (claim) {
+              var item = document.createElement("li");
+              item.textContent = (claim.supported ? "Supported · " : "Unsupported · ") +
+                (claim.text || "");
+              claimList.appendChild(item);
+            });
+            claims.appendChild(claimList);
+            body.appendChild(claims);
+          }
+        });
+        if (d.scoring_error && d.scoring_status !== "error" && d.scoring_status !== "overloaded") {
+          var partialError = document.createElement("p");
+          partialError.className = "judge-line metric-error";
+          partialError.textContent = "Scoring warning: " + d.scoring_error;
+          body.appendChild(partialError);
+        }
+
+      }
+
+      // --- live SSE + polling fallback ---
+      var sseDown = false, pollTimer = null, reconnectTimer = null, reconnectDelay = 1000;
+      function setConn(stateName, txt) {
+        var live = stateName === "is-live";
+        var connection = $("eval-connection");
+        connection.className = "status " + (live ? "status-ok" : "status-error");
+        connection.textContent = live ? "Live · connected" : txt;
+        $("eval-sidebar-dot").className = "eval-system-dot " + (live ? "ok" : "warn");
+        $("eval-sidebar-status").textContent = live ? "API operational" : txt;
+      }
+      async function subscribe() {
+        try {
+          var r = await fetch(API_BASE + "/api/live/events", { headers: headers() });
+          if (!r.ok || !r.body) { throw new Error("no stream"); }
+          var reader = r.body.getReader();
+          var dec = new TextDecoder();
+          var buf = "";
+          sseDown = false;
+          reconnectDelay = 1000;
+          if (pollTimer !== null) { window.clearTimeout(pollTimer); pollTimer = null; }
+          setConn("is-live", "Live");
+          for (;;) {
+            var chunk = await reader.read();
+            if (chunk.done) { throw new Error("closed"); }
+            buf += dec.decode(chunk.value, { stream: true });
+            var parts = buf.split("\n\n");
+            buf = parts.pop();
+            for (var i = 0; i < parts.length; i++) {
+              var lines = parts[i].split("\n").filter(function (l) { return l.indexOf("data:") === 0; });
+              if (!lines.length) { continue; }
+              try {
+                var evt = JSON.parse(lines.map(function (l) { return l.slice(5); }).join(""));
+                onLiveEvent(evt);
+              } catch (e) { /* ignore malformed */ }
+            }
+          }
+        } catch (e) {
+          sseDown = true;
+          setConn("is-poll", "Polling every 3s (stream unavailable)");
+          pollLiveLoop();
+          if (reconnectTimer !== null) { window.clearTimeout(reconnectTimer); }
+          reconnectTimer = window.setTimeout(subscribe, reconnectDelay);
+          reconnectDelay = Math.min(30000, reconnectDelay * 2);
+        }
+      }
+      function onLiveEvent(evt) {
+        if (!evt || !evt.query_id) { return; }
+        refreshLive();
+        refreshLive();
+      }
+      function pollLiveLoop() {
+        if (!sseDown) { return; }
+        refreshLive();
+        pollTimer = window.setTimeout(pollLiveLoop, 3000);
+      }
+
+      // =================== OFFLINE CHECK TAB ===================
+      var offState = { runId: null, compareId: null, runs: [] };
+      function params() { return new URLSearchParams(window.location.search); }
+      function syncUrl(runId, compareId) {
+        var q = new URLSearchParams(window.location.search);
+        if (runId) { q.set("run", runId); } else { q.delete("run"); }
+        if (compareId) { q.set("compare", compareId); } else { q.delete("compare"); }
+        window.history.replaceState(null, "", window.location.pathname + (q.toString() ? "?" + q.toString() : ""));
       }
       function fillSelect(sel, runs, current, allowNone) {
         while (sel.firstChild) { sel.removeChild(sel.firstChild); }
@@ -252,78 +1103,66 @@
         });
         sel.value = current || "";
       }
-
-      // ---- tiles + metrics table ----
-      function pill(metric, value) {
-        var st = window.EvalLib.pillState(
-          state.cfg.metrics, state.cfg.targets, metric, value);
-        var span = document.createElement("span");
-        span.className = "pill " + st.cls;
-        span.textContent = st.text;
-        if (st.cls === "pill-none") { span.title = missTip(); }
-        return span;
+      async function loadRuns() {
+        var q = params();
+        offState.runs = (await get("/api/runs?limit=50")).runs || [];
+        offState.runId = q.get("run") || (offState.runs[0] && offState.runs[0].id) || null;
+        var done = offState.runs.filter(function (r) { return r.status === "completed"; });
+        var prev = done.filter(function (r) { return r.id !== offState.runId; })[0];
+        offState.compareId = q.get("compare") || (prev && prev.id) || null;
+        fillSelect($("eval-run-sel"), offState.runs, offState.runId);
+        fillSelect($("eval-cmp-sel"), offState.runs, offState.compareId, true);
+        $("eval-csv").href = offState.runId ? API_BASE + "/api/runs/" + offState.runId + "/export.csv" : "#";
+        var run = offState.runs.filter(function (r) { return r.id === offState.runId; })[0];
+        if (!run && offState.runId) {
+          offState.runId = (offState.runs[0] && offState.runs[0].id) || null;
+          syncUrl(offState.runId, offState.compareId);
+          run = offState.runs.filter(function (r) { return r.id === offState.runId; })[0];
+        }
+        if (!offState.runs.length) {
+          $("eval-empty").hidden = false;
+          $("eval-run-label").textContent = "No runs yet";
+          $("eval-metrics-table").textContent = "";
+          $("eval-lowest").textContent = "";
+          $("eval-failures").textContent = "";
+          return null;
+        }
+        $("eval-empty").hidden = true;
+        var cfg = (run && run.config) || {};
+        $("eval-run-label").textContent =
+          "Run " + (run.label || run.id.slice(0, 8)) + " · " + (run.n_total || "?") + " questions";
+        $("eval-config-chips").textContent =
+          "top-k " + cfg.rerank_top_k + " · judge " + (cfg.judge_model || "off") +
+          (cfg.judge_warning ? " (" + cfg.judge_warning + ")" : "");
+        var strip = $("eval-status-strip");
+        var st = run.display_status || run.status;
+        if (st === "completed") { strip.hidden = true; }
+        else {
+          strip.hidden = false;
+          strip.textContent = "Status: " + st + " · answered " + (run.n_answered || 0) + "/" +
+            (run.n_total || "?") + ", scored " + (run.n_scored || 0) + "/" + (run.n_total || "?") +
+            ". Numbers are partial until the run completes." + (run.error ? " Error: " + run.error : "");
+        }
+        var active = offState.runs.some(function (r) {
+          return r.status === "running" || r.status === "queued";
+        });
+        $("eval-run-btn").disabled = active;
+        var sel = offState.runs.filter(function (r) { return r.id === offState.runId; })[0];
+        $("eval-cancel-btn").hidden = !(sel && (sel.status === "running" || sel.status === "queued"));
+        return run;
       }
+      function fmt(metric, value) {
+        return window.EvalLib.fmtMetric(state.metrics, metric, value);
+      }
+      function showText(el, text) { el.textContent = text; }
       function deltaEl(metric, delta) {
-        var info = window.EvalLib.deltaInfo(state.cfg.metrics, metric, delta);
+        var info = window.EvalLib.deltaInfo(state.metrics, metric, delta);
         var s = document.createElement("span");
         s.className = "eval-delta " + info.cls;
         s.textContent = info.text;
         return s;
       }
-      async function renderTiles(run) {
-        var box = $("eval-tiles");
-        while (box.firstChild) { box.removeChild(box.firstChild); }
-        if (!run) { return; }
-        var detail = await get("/api/runs/" + run.id);
-        var cmp = state.compareId
-          ? await get("/api/runs/" + run.id + "/compare/" + state.compareId).catch(function () { return null; })
-          : null;
-        var metrics = state.cfg.dashboard.headline_metrics || [];
-        metrics.forEach(function (m) {
-          var agg = (detail.aggregates || {})[m] || { value: null, n: 0 };
-          var card = document.createElement("div");
-          card.className = "card";
-          var h = document.createElement("h2");
-          h.textContent = ((state.cfg.metrics[m] || {}).name || m);
-          var big = document.createElement("div");
-          big.className = "eval-big";
-          show(big, fmt(m, agg.value) === null ? "—" : fmt(m, agg.value),
-            agg.value === null ? missTip() : ("n=" + agg.n));
-          card.appendChild(h); card.appendChild(big);
-          var d = cmp && cmp.metrics[m] ? cmp.metrics[m].delta : null;
-          var row = document.createElement("div");
-          row.appendChild(deltaEl(m, d));
-          var vs = document.createElement("span");
-          vs.className = "hint";
-          vs.textContent = state.compareId ? " vs run" : " no comparison run";
-          row.appendChild(vs);
-          card.appendChild(row);
-          var meter = document.createElement("div");
-          meter.className = "eval-meter";
-          var fill = document.createElement("span");
-          fill.style.width = agg.value === null ? "0%"
-            : Math.max(0, Math.min(100, agg.value * 100)) + "%";
-          meter.appendChild(fill);
-          var t = (state.cfg.targets || {})[m];
-          if (t !== null && t !== undefined && (state.cfg.metrics[m] || {}).format !== "usd"
-              && (state.cfg.metrics[m] || {}).format !== "seconds") {
-            var tick = document.createElement("span");
-            tick.className = "eval-tick";
-            tick.style.left = Math.max(0, Math.min(100, t * 100)) + "%";
-            meter.appendChild(tick);
-          }
-          card.appendChild(meter);
-          var tg = document.createElement("div");
-          tg.className = "eval-target";
-          tg.textContent = (t === null || t === undefined) ? "No target set"
-            : "Target " + ((state.cfg.metrics[m] || {}).direction === "lower" ? "≤ " : "≥ ") + fmt(m, t)
-            + " · n=" + agg.n;
-          card.appendChild(tg);
-          box.appendChild(card);
-        });
-        renderTable(detail, cmp);
-      }
-      function renderTable(detail, cmp) {
+      async function renderTable(detail, cmp) {
         var host = $("eval-metrics-table");
         while (host.firstChild) { host.removeChild(host.firstChild); }
         var table = document.createElement("table");
@@ -334,8 +1173,8 @@
         });
         table.appendChild(head);
         var groups = {};
-        Object.keys(state.cfg.metrics).forEach(function (m) {
-          var g = state.cfg.metrics[m].group || "other";
+        Object.keys(state.metrics).forEach(function (m) {
+          var g = state.metrics[m].group || "other";
           (groups[g] = groups[g] || []).push(m);
         });
         ["retrieval", "generation", "video", "system", "other"].forEach(function (g) {
@@ -350,68 +1189,77 @@
             var c = cmp && cmp.metrics[m] ? cmp.metrics[m] : null;
             var tr = document.createElement("tr");
             var name = document.createElement("td");
-            name.textContent = (state.cfg.metrics[m] || {}).name || m;
+            name.textContent = (state.metrics[m] || {}).name || m;
             var cur = document.createElement("td");
-            show(cur, fmt(m, agg.value) === null ? "—" : fmt(m, agg.value) + "  (n=" + agg.n + ")",
-              agg.value === null ? missTip() : null);
+            showText(cur, fmt(m, agg.value) === null ? "—" : fmt(m, agg.value) + "  (n=" + agg.n + ")");
             var oth = document.createElement("td");
             var cv = c ? c.comparison.value : null;
-            show(oth, !c || fmt(m, cv) === null ? "—" : fmt(m, cv), null);
+            showText(oth, !c || fmt(m, cv) === null ? "—" : fmt(m, cv));
             var chg = document.createElement("td");
             chg.appendChild(deltaEl(m, c ? c.delta : null));
             if (c && c.delta !== null && c.within_noise) {
               var noise = document.createElement("span");
               noise.className = "hint";
               noise.textContent = " · within noise";
-              noise.title = "Paired-bootstrap 95% CI includes zero (n=" +
-                (c.n_paired || 0) + ").";
               chg.appendChild(noise);
             }
             var st = document.createElement("td");
-            st.appendChild(pill(m, agg.value));
+            st.appendChild(pillEl(m, agg.value));
             [name, cur, oth, chg, st].forEach(function (td) { tr.appendChild(td); });
             table.appendChild(tr);
           });
         });
         host.appendChild(table);
       }
-
-      // ---- breakdown, failures, trend, lowest ----
+      function pillEl(metric, value) {
+        var st = window.EvalLib.pillState(state.metrics, state.targets || {}, metric, value);
+        var span = document.createElement("span");
+        span.className = "pill " + st.cls;
+        span.textContent = st.text;
+        return span;
+      }
+      function barRow(label, value, text) {
+        var row = document.createElement("div");
+        row.className = "bar-row";
+        var lab = document.createElement("span"); lab.textContent = label;
+        var track = document.createElement("div"); track.className = "bar-track";
+        var fill = document.createElement("div"); fill.className = "bar-fill";
+        fill.style.width = (value === null ? 0 : Math.max(0, Math.min(1, value)) * 100) + "%";
+        track.appendChild(fill);
+        var val = document.createElement("span"); val.className = "bar-val";
+        val.textContent = text !== undefined ? text : (value === null ? "—" : Number(value).toFixed(2));
+        [lab, track, val].forEach(function (el) { row.appendChild(el); });
+        return row;
+      }
+      function note(text) {
+        var p = document.createElement("p");
+        p.className = "hint"; p.textContent = text;
+        return p;
+      }
       async function renderSide(run) {
         if (!run) { return; }
-        var bd = await get("/api/runs/" + run.id + "/breakdown?by=question_type&metric=answer_correctness");
-        var bt = $("eval-by-type");
-        while (bt.firstChild) { bt.removeChild(bt.firstChild); }
-        (bd.groups || []).forEach(function (g, i) {
-          bt.appendChild(barRow(g.group + " · " + g.n + " q", g.value, SERIES[i % SERIES.length]));
-        });
-        if (!(bd.groups || []).length) {
-          bt.appendChild(note("No scored questions yet."));
-        }
-        var fb = await get("/api/runs/" + run.id + "/failures");
-        var fh = $("eval-failures");
-        while (fh.firstChild) { fh.removeChild(fh.firstChild); }
-        var causes = state.cfg.dashboard.failure_causes || {};
-        var entries = Object.keys(fb.by_cause || {});
-        var sub = document.createElement("p");
-        sub.className = "hint";
-        sub.textContent = fb.total_failed
-          ? "Questions below the bar (" + fb.total_failed + " of " + fb.total + ")"
-          : "No failures — every scored question is above the bar.";
-        fh.appendChild(sub);
-        var max = Math.max.apply(null, entries.map(function (k) { return fb.by_cause[k]; }).concat([1]));
-        entries.forEach(function (k) {
-          fh.appendChild(barRow(causes[k] || k, fb.by_cause[k] / max, BLUE, String(fb.by_cause[k])));
-        });
-        var trend = await get("/api/trend?metrics=" +
-          encodeURIComponent((state.cfg.dashboard.trend_metrics || []).join(",")) + "&last=12");
-        renderTrend(trend.trend || []);
-        var low = await get("/api/runs/" + run.id +
-          "/results?sort=answer_correctness&order=asc&limit=5");
         var lh = $("eval-lowest");
         while (lh.firstChild) { lh.removeChild(lh.firstChild); }
-        if (!low.results.length) { lh.appendChild(note("No results yet.")); }
-        low.results.forEach(function (r) {
+        var low = (await get("/api/runs/" + run.id +
+          "/results?sort=answer_correctness&order=asc&limit=5")).results || [];
+        if (!low.results && !low.length) { lh.appendChild(note("No results yet.")); }
+        var causes;
+        try { causes = (await get("/api/runs/" + run.id + "/failures")); }
+        catch (e) { causes = { by_cause: {} }; }
+        var fh = $("eval-failures");
+        while (fh.firstChild) { fh.removeChild(fh.firstChild); }
+        var entries = Object.keys(causes.by_cause || {});
+        var sub = document.createElement("p");
+        sub.className = "hint";
+        sub.textContent = causes.total_failed
+          ? "Questions below the bar (" + causes.total_failed + " of " + causes.total + ")"
+          : "No failures — every scored question is above the bar.";
+        fh.appendChild(sub);
+        var max = Math.max.apply(null, entries.map(function (k) { return causes.by_cause[k]; }).concat([1]));
+        entries.forEach(function (k) {
+          fh.appendChild(barRow(k, causes.by_cause[k] / max, String(causes.by_cause[k])));
+        });
+        (low.results || low).forEach(function (r) {
           var b = document.createElement("button");
           b.type = "button"; b.className = "qrow";
           var q = document.createElement("span"); q.textContent = r.question;
@@ -419,7 +1267,7 @@
           ty.className = "hint"; ty.textContent = r.question_type || "";
           var cause = document.createElement("span");
           cause.className = "cause-tag";
-          cause.textContent = (causes[r.failure_cause] || r.failure_cause || "—");
+          cause.textContent = r.failure_cause || "—";
           var sc = document.createElement("span");
           var v = (r.scores || {}).answer_correctness;
           sc.textContent = (v === null || v === undefined) ? "—" : Number(v).toFixed(2);
@@ -428,121 +1276,12 @@
           lh.appendChild(b);
         });
       }
-      function note(text) {
-        var p = document.createElement("p");
-        p.className = "hint"; p.textContent = text;
-        return p;
-      }
-      function barRow(label, value, color, text) {
-        var row = document.createElement("div");
-        row.className = "bar-row";
-        var lab = document.createElement("span"); lab.textContent = label;
-        var track = document.createElement("div"); track.className = "bar-track";
-        var fill = document.createElement("div"); fill.className = "bar-fill";
-        fill.style.background = color;
-        fill.style.width = (value === null ? 0 : Math.max(0, Math.min(1, value)) * 100) + "%";
-        track.appendChild(fill);
-        var val = document.createElement("span"); val.className = "bar-val";
-        val.textContent = text !== undefined ? text
-          : (value === null ? "—" : Number(value).toFixed(2));
-        [lab, track, val].forEach(function (el) { row.appendChild(el); });
-        return row;
-      }
-      function renderTrend(series) {
-        var host = $("eval-trend");
-        while (host.firstChild) { host.removeChild(host.firstChild); }
-        if (!series.length) { host.appendChild(note("No completed runs yet.")); return; }
-        var W = 520, H = 220, P = 34;
-        var all = [];
-        series.forEach(function (s) {
-          Object.keys(s.metrics).forEach(function (m) {
-            if (s.metrics[m].value !== null) { all.push(s.metrics[m].value); }
-          });
-        });
-        var lo = Math.min.apply(null, all.concat([0.55])), hi = Math.max.apply(null, all.concat([1]));
-        function X(i) { return P + (W - 2 * P) * (series.length < 2 ? 0.5 : i / (series.length - 1)); }
-        function Y(v) { return H - P - (H - 2 * P) * (v - lo) / Math.max(0.01, hi - lo); }
-        var svgNS = "http://www.w3.org/2000/svg";
-        var svg = document.createElementNS(svgNS, "svg");
-        svg.setAttribute("viewBox", "0 0 " + W + " " + H);
-        svg.setAttribute("width", "100%");
-        svg.setAttribute("role", "img");
-        svg.setAttribute("aria-label", "Metric trend across runs");
-        var names = Object.keys(series[0].metrics);
-        names.forEach(function (m, mi) {
-          var pts = [];
-          series.forEach(function (s, i) {
-            var v = s.metrics[m].value;
-            if (v !== null) { pts.push([X(i), Y(v)]); }
-          });
-          var path = document.createElementNS(svgNS, "polyline");
-          path.setAttribute("points", pts.map(function (p) { return p.join(","); }).join(" "));
-          path.setAttribute("fill", "none");
-          path.setAttribute("stroke", SERIES[mi % SERIES.length]);
-          path.setAttribute("stroke-width", "2");
-          var tip = document.createElementNS(svgNS, "title");
-          tip.textContent = m;
-          path.appendChild(tip);
-          svg.appendChild(path);
-          pts.forEach(function (p) {
-            var c = document.createElementNS(svgNS, "circle");
-            c.setAttribute("cx", p[0]); c.setAttribute("cy", p[1]); c.setAttribute("r", "3");
-            c.setAttribute("fill", SERIES[mi % SERIES.length]);
-            svg.appendChild(c);
-          });
-          if (pts.length) {
-            var last = pts[pts.length - 1];
-            var t = document.createElementNS(svgNS, "text");
-            t.setAttribute("x", Math.min(W - 30, last[0] + 5)); t.setAttribute("y", last[1] + 3);
-            t.setAttribute("font-size", "10");
-            var lastV = null;
-            for (var i = series.length - 1; i >= 0; i--) {
-              if (series[i].metrics[m].value !== null) { lastV = series[i].metrics[m].value; break; }
-            }
-            t.textContent = Number(lastV).toFixed(2);
-            svg.appendChild(t);
-          }
-        });
-        host.appendChild(svg);
-        var legend = document.createElement("p");
-        legend.className = "hint";
-        legend.textContent = names.join(" · ");
-        host.appendChild(legend);
-        var tbl = $("eval-trend-table");
-        while (tbl.firstChild) { tbl.removeChild(tbl.firstChild); }
-        var table = document.createElement("table");
-        table.className = "eval-table";
-        var hr = document.createElement("tr");
-        ["Run"].concat(names).forEach(function (n) {
-          var th = document.createElement("th"); th.textContent = n; hr.appendChild(th);
-        });
-        table.appendChild(hr);
-        series.forEach(function (s) {
-          var tr = document.createElement("tr");
-          var lab = document.createElement("td");
-          lab.textContent = s.label || s.run_id.slice(0, 8);
-          tr.appendChild(lab);
-          names.forEach(function (m) {
-            var td = document.createElement("td");
-            var v = s.metrics[m].value;
-            td.textContent = v === null ? "—" : Number(v).toFixed(2);
-            tr.appendChild(td);
-          });
-          table.appendChild(tr);
-        });
-        tbl.appendChild(table);
-      }
-
-      // ---- trace drawer ----
       async function openTrace(resultId) {
         var body = $("eval-drawer-body");
         while (body.firstChild) { body.removeChild(body.firstChild); }
         $("eval-drawer").hidden = false;
         var t = await get("/api/results/" + resultId).catch(function (e) { return { error: e.message }; });
-        if (t.error) {
-          body.appendChild(note("Trace failed: " + t.error));
-          return;
-        }
+        if (t.error) { body.appendChild(note("Trace failed: " + t.error)); return; }
         var h = document.createElement("h2");
         h.textContent = t.question || t.question_id;
         body.appendChild(h);
@@ -564,8 +1303,8 @@
           box.className = "eval-chunk" + (c.relevant ? " rel" : "");
           var head = document.createElement("div");
           head.textContent = "#" + (i + 1) + " " + c.video_id + " · " +
-            fmtTime(c.start_s) + "–" + fmtTime(c.end_s) + " · score " +
-            (c.score === null ? "—" : c.score) + (c.relevant ? " · relevant" : "");
+            window.EvalLib.fmtTime(c.start_s) + "–" + window.EvalLib.fmtTime(c.end_s) +
+            " · score " + (c.score === null ? "—" : c.score) + (c.relevant ? " · relevant" : "");
           var sn = document.createElement("p");
           sn.className = "eval-snippet";
           sn.textContent = c.text || "";
@@ -580,68 +1319,41 @@
           ap.textContent = t.answer;
           body.appendChild(ah); body.appendChild(ap);
         }
-        var sh = document.createElement("h3");
-        sh.textContent = "Scores";
-        body.appendChild(sh);
+        var shh = document.createElement("h3");
+        shh.textContent = "Scores";
+        body.appendChild(shh);
         t.scores.forEach(function (s) {
           var p = document.createElement("p");
           p.className = "hint";
-          var detail = s.detail || {};
+          var d = s.detail || {};
           p.textContent = s.metric + ": " +
-            (s.value === null ? "— (not computable here)" : Number(s.value).toFixed(2)) +
-            (detail.reasoning ? " — " + detail.reasoning : "") +
+            (s.value === null ? "— (not computed)" : String(Number(s.value).toFixed(2))) +
+            (d.reasoning ? " — " + d.reasoning : "") +
             (s.judge_model ? " [" + s.judge_model + "]" : "");
           body.appendChild(p);
         });
-        if (t.citations && t.citations.length) {
-          var chh = document.createElement("h3");
-          chh.textContent = "Citations";
-          body.appendChild(chh);
-          t.citations.forEach(function (c) {
-            var p = document.createElement("p");
-            p.className = "hint";
-            p.textContent = (c.hit ? "✓ hit " : "✗ miss ") + c.video_id +
-              " @ " + fmtTime(c.start_s);
-            body.appendChild(p);
-            var a = document.createElement("a");
-            a.href = c.url; a.target = "_blank"; a.rel = "noreferrer";
-            a.textContent = "Open at timestamp";
-            body.appendChild(a);
-          });
-        }
-      }
-      function fmtTime(s) {
-        return window.EvalLib.fmtTime(s);
       }
       $("eval-drawer-close").addEventListener("click", function () {
         $("eval-drawer").hidden = true;
       });
       document.addEventListener("keydown", function (e) {
         if (e.key === "Escape") { $("eval-drawer").hidden = true; }
-      });
-      $("eval-trend-toggle").addEventListener("click", function () {
-        var t = $("eval-trend-table");
-        t.hidden = !t.hidden;
-        this.textContent = t.hidden ? "View as table" : "View as chart";
-      });
 
-      // ---- run dialog (inline prompt row), selectors, live feed ----
+      });
       $("eval-cancel-btn").addEventListener("click", async function () {
-        if (!state.runId) { return; }
+        if (!offState.runId) { return; }
         try {
-          var r = await fetch(API_BASE + "/api/runs/" + state.runId + "/cancel", {
-            method: "POST",
-            headers: headers()
+          var r = await fetch(API_BASE + "/api/runs/" + offState.runId + "/cancel", {
+            method: "POST", headers: headers()
           });
           if (!r.ok) { throw new Error("HTTP " + r.status); }
-          await refresh(true);
+          await refreshOffline();
         } catch (err) {
           window.alert("Cancel failed: " + err.message);
         }
       });
       $("eval-run-btn").addEventListener("click", async function () {
-        var path = window.prompt("Golden set file path:",
-          "backend\\eval\\golden_set.jsonl");
+        var path = window.prompt("Golden set file path:", "backend\\eval\\golden_set.jsonl");
         if (path === null) { return; }
         var label = window.prompt("Run label:", "dashboard run");
         if (label === null) { return; }
@@ -655,165 +1367,94 @@
             var e = await r.json().catch(function () { return {}; });
             throw new Error("HTTP " + r.status + " " + (e.message || ""));
           }
-          var body = await r.json();
-          syncUrl(body.run_id, state.compareId);
-          await waitForRun(body.run_id);
-          await refresh(true);
+          await waitForRun((await r.json()).run_id);
+          await refreshOffline();
         } catch (err) {
           window.alert("Run failed to start: " + err.message);
         }
       });
       async function waitForRun(runId) {
-        // The row is inserted by the background worker; poll until listed.
         for (var i = 0; i < 10; i++) {
           try {
             var r = await fetch(API_BASE + "/api/runs/" + runId, { headers: headers() });
             if (r.ok) { return; }
-          } catch (e) { /* retry below */ }
-          await new Promise(function (res) { setTimeout(res, 500); });
+          } catch (e) { /* retry */ }
+          await new Promise(function (res) { window.setTimeout(res, 500); });
         }
-      }
-      function syncUrl(runId, compareId) {
-        var q = new URLSearchParams(window.location.search);
-        if (runId) { q.set("run", runId); } else { q.delete("run"); }
-        if (compareId) { q.set("compare", compareId); } else { q.delete("compare"); }
-        window.history.replaceState(null, "",
-          window.location.pathname + (q.toString() ? "?" + q.toString() : ""));
       }
       $("eval-run-sel").addEventListener("change", function () {
-        state.runId = this.value || null;
-        syncUrl(state.runId, state.compareId);
-        refresh(true);
+        offState.runId = this.value || null;
+        syncUrl(offState.runId, offState.compareId);
+        refreshOffline();
       });
       $("eval-cmp-sel").addEventListener("change", function () {
-        state.compareId = this.value || null;
-        syncUrl(state.runId, state.compareId);
-        refresh(true);
+        offState.compareId = this.value || null;
+        syncUrl(offState.runId, offState.compareId);
+        refreshOffline();
       });
-
-      var liveTimer = null, failCount = 0;
-      function setLive(text) { $("eval-live").textContent = text; }
-      async function subscribe() {
+      async function refreshOffline() {
         try {
-          var r = await fetch(API_BASE + "/api/events", { headers: headers() });
-          if (!r.ok || !r.body) { throw new Error("no stream"); }
-          var reader = r.body.getReader();
-          var dec = new TextDecoder();
-          var buf = "", backoff = 1000;
-          failCount = 0;
-          setLive("● Live");
-          state.lastEventAt = Date.now();
-          for (;;) {
-            var chunk = await reader.read();
-            if (chunk.done) { throw new Error("closed"); }
-            buf += dec.decode(chunk.value, { stream: true });
-            var parts = buf.split("\n\n");
-            buf = parts.pop();
-            for (var i = 0; i < parts.length; i++) {
-              (function (block) {
-                var lines = block.split("\n").filter(function (l) {
-                  return l.indexOf("data:") === 0;
-                });
-                if (!lines.length) { return; }
-                try {
-                  var evt = JSON.parse(lines.map(function (l) {
-                    return l.slice(5);
-                  }).join(""));
-                  state.lastEventAt = Date.now();
-                  onEvent(evt);
-                } catch (e) { /* ignore malformed */ }
-              })(parts[i]);
-            }
-            backoff = 1000;
-          }
+          var run = await loadRuns();
+          if (!run && !offState.runs.length) { return; }
+          var detail = await get("/api/runs/" + offState.runId);
+          var cmp = offState.compareId
+            ? await get("/api/runs/" + offState.runId + "/compare/" + offState.compareId).catch(function () { return null; })
+            : null;
+          $("eval-metrics-table").textContent = "";
+          await renderTable(detail, cmp);
+          await renderSide(run);
         } catch (e) {
-          failCount += 1;
-          var wait = Math.min(30000, 1000 * Math.pow(2, failCount));
-          setLive("○ Reconnecting… (polling every 3s)");
-          pollOnce();
-          liveTimer = window.setTimeout(subscribe, wait);
+          $("eval-metrics-table").textContent = "Load failed: " + e.message;
         }
-      }
-      var lastRefresh = 0, pendingRefresh = false;
-      function onEvent(evt) {
-        if (evt.run_id && (evt.run_id === state.runId || evt.run_id === state.compareId)) {
-          state.sseOk = true;
-          var now = Date.now();
-          if (now - lastRefresh < 1000) {
-            if (!pendingRefresh) {
-              pendingRefresh = true;
-              window.setTimeout(function () {
-                pendingRefresh = false; lastRefresh = Date.now(); refresh(true);
-              }, 1000 - (now - lastRefresh));
-            }
-            return;
-          }
-          lastRefresh = now;
-          refresh(true);
-        }
-        if (evt.run_id) { loadRuns(); }
-      }
-      async function pollOnce() {
-        try { await refresh(true); } catch (e) { /* next tick */ }
-        liveTimer = window.setTimeout(pollOnce, 3000);
       }
 
-      // ---- boot ----
-      async function ping() {
+      // =================== boot ===================
+      function switchTab(name) {
+        var live = name === "live";
+        $("page-live").hidden = !live;
+        $("page-offline").hidden = live;
+        $("tab-live").classList.toggle("active", live);
+        $("tab-offline").classList.toggle("active", !live);
+        $("tab-live").setAttribute("aria-current", live ? "page" : "false");
+        $("tab-offline").setAttribute("aria-current", live ? "false" : "page");
+        $("eval-page-title").textContent = live ? "Live evaluation" : "Golden-set checks";
+        $("eval-page-subtitle").textContent = live
+          ? "Inspect retrieval and answer quality for real user queries."
+          : "Validate answer quality against reviewed reference answers.";
+        if (!live) { refreshOffline(); }
+      }
+      $("tab-live").addEventListener("click", function () { switchTab("live"); });
+      $("tab-offline").addEventListener("click", function () { switchTab("offline"); });
+      $("live-refresh").addEventListener("click", refreshLive);
+      $("live-search").addEventListener("input", function () {
+        state.queryFilter = this.value || "";
+        renderQueryList();
+      });
+      $("offline-refresh").addEventListener("click", refreshOffline);
+
+      (async function boot() {
         try {
-          var r = await fetch(API_BASE + "/api/health");
-          if (!r.ok) { throw new Error("HTTP " + r.status); }
+          await get("/api/health");
           var conn = $("eval-connection");
-          conn.textContent = "Backend: live";
+          conn.textContent = "API operational";
           conn.className = "status status-ok";
+          $("eval-sidebar-dot").className = "eval-system-dot ok";
+          $("eval-sidebar-status").textContent = "API operational";
         } catch (e) {
           var conn2 = $("eval-connection");
           conn2.textContent = "Backend: unreachable (" + e.message + ")";
           conn2.className = "status status-error";
+          $("eval-sidebar-dot").className = "eval-system-dot warn";
+          $("eval-sidebar-status").textContent = "API unavailable";
+          $("eval-sidebar-queue").textContent = e.message;
         }
-      }
-      async function refresh(full) {
-        var run = await loadRuns();
-        if (!state.cfg) {
-          state.cfg = await get("/api/config/dashboard");
-        }
-        if (!run && !state.runs.length) {
-          ["eval-tiles", "eval-metrics-table", "eval-by-type",
-           "eval-failures", "eval-trend", "eval-lowest"].forEach(function (id) {
-            var el = $(id);
-            while (el.firstChild) { el.removeChild(el.firstChild); }
-          });
-          return;
-        }
-        if (full) {
-          await renderTiles(run);
-          await renderSide(run);
-        }
-      }
-      (async function boot() {
-        await ping();
         try {
-          state.cfg = await get("/api/config/dashboard");
-        } catch (e) {
-          var page = $("eval-page");
-          while (page.firstChild) { page.removeChild(page.firstChild); }
-          var err = document.createElement("p");
-          err.className = "status status-error";
-          err.textContent = "API error: " + e.message + " ";
-          var retry = document.createElement("button");
-          retry.type = "button"; retry.textContent = "Retry";
-          retry.addEventListener("click", function () { window.location.reload(); });
-          err.appendChild(retry);
-          page.appendChild(err);
-          return;
-        }
-        await refresh(true);
+          var cfg = await get("/api/config/dashboard");
+          state.metrics = cfg.metrics;
+          state.targets = cfg.targets;
+        } catch (e) { state.metrics = null; state.targets = null; }
+        await refreshLive();
         subscribe();
-        window.setInterval(function () {
-          if (Date.now() - state.lastEventAt > 10000 && state.sseOk !== true) { return; }
-          setLive("● Live · updated " +
-            Math.max(0, Math.round((Date.now() - state.lastEventAt) / 1000)) + "s ago");
-        }, 5000);
       })();
     })();
   </script>

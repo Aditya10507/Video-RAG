@@ -82,6 +82,18 @@ class Container:
             reranker_name = "lexical"
         self.llm = build_language_model(settings)
         self.registry = SqliteRegistry(Path(settings.data_dir) / "registry.db")
+        # Live per-query tracing for the /eval dashboard. Unsets to None when
+        # disabled; the tracer itself is best-effort and can never break an
+        # answer. Same LLM doubles as the judge (owner decision).
+        self.tracer = None
+        if settings.live_trace:
+            try:
+                from .live.store import LiveTracer
+
+                self.tracer = LiveTracer(Path(settings.data_dir) / "eval.db", self.llm)
+                log.info("Live traces: on (%s)", Path(settings.data_dir) / "eval.db")
+            except Exception as e:
+                log.warning("live tracer unavailable, answering continues: %s", e)
         log.info("Container ready (reranker: %s, transcripts: captions)", reranker_name)
 
 
