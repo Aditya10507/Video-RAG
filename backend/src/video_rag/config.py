@@ -101,6 +101,22 @@ class Settings:
     judge_model: str = ""
     judge_api_key: str | None = None
 
+    # --- Voice: Gnani speech APIs (STT + TTS, Indian languages) ---------------
+    # Sent as X-API-Key-ID to api.vachana.ai. Optional: /voice endpoints return
+    # a clear error when the key is absent instead of failing at startup.
+    gnani_api_key: str = ""
+    gnani_base_url: str = "https://api.vachana.ai"
+    # STT (Gnani Prisma). prisma-v3.0 supports indic-auto language detection.
+    gnani_stt_model: str = "prisma-v3.0"
+    gnani_stt_languages: str = "indic-auto"
+    gnani_stt_format: str = "transcribe"
+    # TTS (Gnani Timbre). timbre-v3.0 voices speak all 10 Indian languages.
+    gnani_tts_model: str = "timbre-v3.0"
+    gnani_tts_voice: str = "Shivani"
+    gnani_tts_speed: float = 1.0
+    gnani_max_tts_characters: int = 3000
+    gnani_max_audio_bytes: int = 5_000_000
+
     refusal_message: str = "The topic is not covered in the given course"
 
     def __post_init__(self) -> None:
@@ -131,6 +147,8 @@ class Settings:
                 raise ConfigurationError(f"{name} must be positive")
         if self.http_timeout_seconds <= 0 or self.llm_timeout_seconds <= 0:
             raise ConfigurationError("timeouts must be positive")
+        if not (0.85 <= self.gnani_tts_speed <= 1.15):
+            raise ConfigurationError("GNANI_TTS_SPEED must be between 0.85 and 1.15")
 
 
 def _split_csv(raw: str) -> tuple:
@@ -211,6 +229,16 @@ def from_env() -> Settings:
         judge_base_url=_get("VIDEO_RAG_JUDGE_BASE_URL", ""),
         judge_model=_get("VIDEO_RAG_JUDGE_MODEL", ""),
         judge_api_key=_get("VIDEO_RAG_JUDGE_API_KEY", "") or None,
+        gnani_api_key=_get("VIDEO_RAG_GNANI_API_KEY", ""),
+        gnani_base_url=_get("VIDEO_RAG_GNANI_BASE_URL", "https://api.vachana.ai"),
+        gnani_stt_model=_get("VIDEO_RAG_GNANI_STT_MODEL", "prisma-v3.0"),
+        gnani_stt_languages=_get("VIDEO_RAG_GNANI_STT_LANGUAGES", "indic-auto"),
+        gnani_stt_format=_get("VIDEO_RAG_GNANI_STT_FORMAT", "transcribe"),
+        gnani_tts_model=_get("VIDEO_RAG_GNANI_TTS_MODEL", "timbre-v3.0"),
+        gnani_tts_voice=_get("VIDEO_RAG_GNANI_TTS_VOICE", "Shivani"),
+        gnani_tts_speed=_get_float("VIDEO_RAG_GNANI_TTS_SPEED", 1.0),
+        gnani_max_tts_characters=_get_int("VIDEO_RAG_GNANI_MAX_TTS_CHARACTERS", 3000),
+        gnani_max_audio_bytes=_get_int("VIDEO_RAG_GNANI_MAX_AUDIO_BYTES", 5_000_000),
         refusal_message=_get(
             "VIDEO_RAG_REFUSAL_MESSAGE", "The topic is not covered in the given course"
         ),
@@ -220,7 +248,7 @@ def from_env() -> Settings:
 
 
 MASKED = {"api_keys", "youtube_api_key", "jina_api_key", "qdrant_api_key", "llm_api_key",
-          "judge_api_key"}
+          "judge_api_key", "gnani_api_key"}
 
 
 def masked_dict(settings: Settings) -> dict:

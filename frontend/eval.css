@@ -1,0 +1,266 @@
+/*
+ * Styles for the evaluation dashboards embedded in the main app
+ * (index.html). Adapted from the page-scoped block in eval.html:
+ * the standalone /eval page's own sidebar and shell rules are dropped
+ * because the app sidebar submenu replaces them, and rules that would
+ * leak into the Home/Library views (body, .topbar, .badge, .status)
+ * are restricted to the eval view / drawer containers.
+ */
+
+/* While an evaluation dashboard is open the page behaves like the /eval
+   console: the shell around it is dropped and the dashboard fills the
+   viewport below the app chrome (22px of shell padding). */
+body.eval-active { overflow: hidden; }
+
+#view-eval {
+  width: 100%;
+  max-width: 1180px;
+  height: calc(100vh - 22px); /* viewport minus the shell padding */
+  height: calc(100dvh - 22px);
+  min-height: 420px;
+  margin: 0 auto;
+}
+
+/* --- evaluation header -------------------------------------------------- */
+.eval-header {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.eval-title-wrap { min-width: 0; }
+.eval-eyebrow { margin: 0 0 5px; color: var(--muted); font-size: 10px;
+  font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+.eval-header h2 { margin: 0; font-size: 21px; line-height: 1.2; }
+.eval-subtitle { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+.eval-header-actions { display: flex; flex-direction: column; align-items: flex-end;
+  gap: 6px; flex: none; }
+#eval-connection { margin: 0; padding: 7px 11px; border-radius: 20px;
+  font-size: 12px; white-space: nowrap; }
+/* System strip (was the "System" block of the standalone eval sidebar). */
+.eval-system-row { display: flex; align-items: center; gap: 8px; }
+#eval-system-status { color: var(--muted); font-size: 12px; }
+#eval-system-queue { color: var(--muted); font-size: 11px; }
+.eval-system-dot { width: 7px; height: 7px; border-radius: 50%;
+  background: #748198; flex: none; }
+.eval-system-dot.ok { background: #42c99a; }
+.eval-system-dot.warn { background: #e4ac4f; }
+
+/* --- dashboard body ------------------------------------------------------ */
+#eval-page {
+  display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0;
+  width: 100%; gap: 16px; overflow: hidden;
+}
+#page-live { display: flex; flex: 1; flex-direction: column;
+  min-width: 0; min-height: 0; gap: 12px; }
+#page-offline { flex: 1; min-height: 0; overflow: auto; }
+.eval-footer { flex: none; padding-top: 8px; color: var(--muted); font-size: 12px; }
+#eval-offline-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+#eval-offline-head select, #eval-offline-head input {
+  font: inherit; padding: 7px 10px;
+  border-radius: 8px; border: 1px solid var(--line);
+  background: var(--card); color: var(--ink); }
+#eval-live { font-size: 13px; color: var(--muted); }
+
+/* --- live feed ------------------------------------------------------------ */
+.live-intro { padding: 22px 24px; }
+.quality-note { flex: none; margin: 0; padding: 8px 11px; border: 1px solid var(--line);
+  border-left: 3px solid var(--warn); border-radius: 8px; background: var(--page);
+  color: var(--muted); font-size: 11px; }
+.quality-note strong { color: var(--ink); }
+.summary-grid { display: grid; flex: none; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
+.summary-card { min-width: 0; padding: 12px 15px; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--card); }
+.summary-label { color: var(--muted); font-size: 9px; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase; }
+.summary-value { margin-top: 5px; color: var(--ink); font-size: 21px; font-weight: 700;
+  line-height: 1.1; font-variant-numeric: tabular-nums; }
+.summary-caption { margin-top: 4px; color: var(--muted); font-size: 10px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-workspace { display: grid; flex: 1; grid-template-columns: minmax(260px, .37fr) minmax(0,1fr);
+  gap: 12px; min-width: 0; min-height: 0; }
+.recent-panel, .selected-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  margin: 0; padding: 15px; overflow: hidden; }
+.recent-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.recent-panel h2, .selected-panel h2 { margin: 0; font-size: 14px; }
+.recent-panel-sub { margin: 3px 0 0; color: var(--muted); font-size: 10px; }
+#live-refresh { flex: none; width: auto; height: auto; padding: 6px 10px; font-size: 11px; }
+#live-search { width: 100%; min-height: 34px; margin: 12px 0 8px; padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: #fbfcfe;
+  font: inherit; font-size: 11px; }
+#live-feed { display: flex; flex: 1; flex-direction: column; gap: 3px; min-height: 0;
+  margin: 0; overflow: auto; }
+.query-item { display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+  width: 100%; padding: 10px 10px; border: 1px solid transparent; border-radius: 8px;
+  color: var(--ink); background: transparent; text-align: left; cursor: pointer; }
+.query-item:hover { background: #f7f8fb; }
+.query-item[aria-pressed="true"] { border-color: #cbd8ff; background: #eef3ff; }
+.query-item-title { overflow: hidden; font-size: 11px; font-weight: 650; text-overflow: ellipsis;
+  white-space: nowrap; }
+.query-item-sub { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-width: 0; color: var(--muted); font-size: 9px; }
+.query-item-course { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.query-item-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.query-item .badge { padding: 2px 6px; font-size: 8px; }
+.query-item .score-pill { padding: 2px 5px; font-size: 8px; }
+.selected-panel { padding: 17px 19px; }
+#selected-query-detail { display: flex; flex: 1; flex-direction: column; gap: 12px;
+  min-height: 0; overflow: auto; }
+.selected-placeholder { display: grid; flex: 1; place-items: center; min-height: 180px;
+  color: var(--muted); text-align: center; font-size: 12px; }
+.detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.detail-heading h2 { font-size: 17px; overflow-wrap: anywhere; }
+.detail-heading-sub { margin: 5px 0 0; color: var(--muted); font-size: 10px; }
+.detail-status { flex: none; }
+.detail-meta { color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+.detail-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+.detail-metric { min-width: 0; padding: 10px 11px; border: 1px solid var(--line);
+  border-radius: 8px; background: #fbfcfe; }
+.detail-metric-label { color: var(--muted); font-size: 9px; font-weight: 650;
+  letter-spacing: .04em; text-transform: uppercase; }
+.detail-metric-value { margin-top: 5px; font-size: 19px; font-weight: 700;
+  font-variant-numeric: tabular-nums; }
+.detail-metric-note { margin-top: 3px; color: var(--muted); font-size: 9px;
+  overflow-wrap: anywhere; }
+.section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  margin: 2px 0 0; }
+.section-heading h3 { margin: 0; font-size: 12px; }
+.section-heading span { color: var(--muted); font-size: 9px; text-align: right; }
+
+/* Score table for the selected query's retrieval evidence. */
+.score-table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--line);
+  border-radius: 8px; }
+.score-table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 10px; }
+.score-table th, .score-table td { text-align: left; padding: 5px 7px;
+  border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.score-table th { color: var(--muted); font-weight: 600; }
+.score-table tr.senttd { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.cite-line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.excerpt { border: 1px solid var(--line); border-radius: 8px;
+  padding: 7px 9px; font-size: 10px; }
+.excerpt .ex-head { color: var(--muted); font-size: 12px; margin-bottom: 3px; }
+.excerpt p { margin: 0; }
+.live-answer { padding: 8px 10px; border-radius: 8px; background: var(--page);
+  white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; user-select: text; }
+.scoring-wait { font-size: 12px; color: var(--muted); }
+.judge-line { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.judge-line strong { color: var(--ink); }
+.metric-error { color: var(--refuse); }
+.metric-na { color: var(--muted); font-style: italic; }
+.claim-checks { margin: 6px 0 10px 18px; padding: 0 0 0 8px; color: var(--muted);
+  font-size: 12px; }
+.claim-checks li { margin: 4px 0; }
+
+/* --- badges: scoped so the app's chat badges keep their own look ---------- */
+#eval-page .badge, #eval-drawer .badge {
+  display: inline-block; font-size: 11px; font-weight: 700;
+  padding: 2px 9px; border-radius: 20px; }
+#eval-page .badge-ok, #eval-drawer .badge-ok {
+  color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+#eval-page .badge-warn, #eval-drawer .badge-warn {
+  color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+#eval-page .badge-refuse, #eval-drawer .badge-refuse {
+  color: var(--refuse); background: color-mix(in srgb, var(--refuse) 12%, transparent); }
+#eval-page .badge-idle, #eval-drawer .badge-idle {
+  color: var(--muted); border: 1px solid var(--line); }
+#eval-page .badge-scored, #eval-drawer .badge-scored {
+  color: #fff; background: var(--muted); }
+
+/* --- offline golden-set checks ------------------------------------------- */
+.eval-tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; flex: none; }
+.eval-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.eval-table th, .eval-table td { text-align: left; padding: 7px 8px;
+  border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.eval-table th { color: var(--muted); font-weight: 600; }
+.eval-group { color: var(--muted); font-size: 12px; text-transform: uppercase;
+  letter-spacing: 0.05em; padding-top: 12px !important; }
+.pill { display: inline-block; font-size: 12px; font-weight: 700;
+  padding: 2px 10px; border-radius: 20px; }
+.pill-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.pill-bad { color: var(--refuse); background: color-mix(in srgb, var(--refuse) 12%, transparent); }
+.pill-none { color: var(--muted); border: 1px solid var(--line); }
+.score-pill { color: var(--ink); background: var(--page); border: 1px solid var(--line);
+  white-space: nowrap; }
+.score-pill.pill-bad { color: var(--refuse); }
+.score-pill.pill-none { color: var(--muted); }
+.bar-row { display: grid; grid-template-columns: 170px 1fr 52px; gap: 10px;
+  align-items: center; margin-top: 10px; font-size: 14px; }
+.bar-track { height: 10px; border-radius: 5px; background: var(--line); }
+.bar-fill { height: 100%; border-radius: 5px; background: var(--accent); }
+.bar-val { text-align: right; font-variant-numeric: tabular-nums; }
+.qrow { width: 100%; text-align: left; font: inherit; background: none;
+  border: none; border-bottom: 1px solid var(--line); padding: 10px 4px;
+  cursor: pointer; display: grid;
+  grid-template-columns: 1fr 150px 90px 60px; gap: 8px; align-items: center;
+  border-radius: 0; color: var(--ink); }
+.qrow:hover { background: var(--page); }
+.cause-tag { font-size: 12px; padding: 2px 8px; border-radius: 12px;
+  background: var(--page); border: 1px solid var(--line); }
+.eval-chunk { border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; margin-top: 8px; font-size: 13px; }
+.eval-chunk.rel { border-color: var(--ok); }
+.eval-snippet { user-select: text; margin: 4px 0 0; }
+
+/* Fixed trace drawer, shared by both dashboards. */
+#eval-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 94vw);
+  background: var(--card); border-left: 1px solid var(--line); z-index: 50;
+  overflow-y: auto; padding: 18px; }
+#eval-drawer button { border: 1px solid var(--line); background: var(--card);
+  color: var(--ink); }
+#eval-drawer h2 { margin: 14px 0 6px; font-size: 17px; }
+#eval-drawer h3 { margin: 14px 0 6px; font-size: 13px; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--muted); }
+#eval-drawer p { margin: 6px 0; }
+
+@media (max-width: 640px) { .live-head { grid-template-columns: 1fr; } }
+
+@media (max-width: 1050px) {
+  .live-workspace { grid-template-columns: minmax(230px,.4fr) minmax(0,1fr); }
+}
+
+@media (max-width: 780px) {
+  .live-head { grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; }
+  .live-badges { grid-column: 1 / -1; justify-content: flex-start; }
+  .bar-row { grid-template-columns: minmax(90px, 150px) minmax(40px, 1fr) 48px; }
+  .qrow { grid-template-columns: minmax(0, 1fr) 120px 72px 48px; }
+}
+
+/* Small screens: let the page scroll again instead of the fixed console. */
+@media (max-width: 760px) {
+  body.eval-active { overflow: auto; }
+  #view-eval { height: auto; min-height: 0; }
+  #eval-page, #page-live { flex: none; overflow: visible; }
+  .summary-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
+  .summary-card { padding: 10px; }
+  .summary-value { font-size: 18px; }
+  .live-workspace { display: flex; flex-direction: column; min-height: auto; }
+  .recent-panel { min-height: 180px; max-height: 280px; }
+  #live-feed { flex: 1; }
+  .selected-panel { min-height: 420px; overflow: visible; }
+  #selected-query-detail { overflow: visible; }
+}
+
+@media (max-width: 520px) {
+  .live-intro { padding: 18px; }
+  .live-card { padding: 14px; }
+  .live-head { grid-template-columns: minmax(0, 1fr); }
+  .live-badges { grid-column: auto; }
+  .eval-tiles { grid-template-columns: 1fr; }
+  .bar-row { grid-template-columns: minmax(78px, 110px) minmax(30px, 1fr) 42px; gap: 7px; font-size: 12px; }
+  .qrow { grid-template-columns: minmax(0, 1fr) auto; }
+  .qrow > :nth-child(2), .qrow > :nth-child(3) { display: none; }
+  #eval-offline-head > * { max-width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .eval-header-actions { gap: 0; }
+  #eval-connection { padding: 6px 8px; font-size: 9px; }
+  .detail-metrics { grid-template-columns: 1fr; }
+  .detail-metric { display: grid; grid-template-columns: minmax(0,1fr) auto;
+    align-items: center; gap: 3px 8px; }
+  .detail-metric-value { grid-column: 2; grid-row: 1 / span 2; }
+  .detail-metric-note { grid-column: 1; margin: 0; }
+  .detail-heading { flex-direction: column; }
+  .selected-panel { padding: 13px; }
+}

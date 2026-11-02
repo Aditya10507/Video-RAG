@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Video RAG - ask your course</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="eval.css" />
 </head>
 
 <body>
@@ -32,6 +33,30 @@
               <span>Library</span>
             </button>
           </li>
+          <li>
+            <button id="nav-evals" type="button" class="side-link" aria-expanded="false"
+              aria-controls="eval-subnav" title="Evaluation pages">
+              <span class="side-icon" aria-hidden="true">&#9878;</span>
+              <span>Evals</span>
+              <span class="side-caret" aria-hidden="true">&#8250;</span>
+            </button>
+            <!-- Mini sidebar for the Evals entry: expands in place, below
+                 Library, and picks which evaluation dashboard to show. -->
+            <ul id="eval-subnav" class="side-subnav" hidden aria-label="Evaluation pages">
+              <li>
+                <button id="nav-eval-live" type="button" class="side-sublink">
+                  <span class="side-sub-icon" aria-hidden="true">&#9099;</span>
+                  <span>Live Evaluation</span>
+                </button>
+              </li>
+              <li>
+                <button id="nav-eval-golden" type="button" class="side-sublink">
+                  <span class="side-sub-icon" aria-hidden="true">&#10003;</span>
+                  <span>Golden dataset evaluation</span>
+                </button>
+              </li>
+            </ul>
+          </li>
         </ul>
       </nav>
       <div id="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize sidebar"
@@ -41,13 +66,8 @@
     <div class="shell-main">
       <button id="sidebar-expand" type="button" class="icon-button sidebar-expand" aria-label="Expand sidebar"
         aria-controls="sidebar" title="Expand sidebar" hidden>&#187;</button>
-      <!-- Header: product name plus the two pieces of live state a user cares
-           about, the API health and an optional API key. -->
-      <header class="topbar">
-        <div>
-          <h1>Video RAG</h1>
-        </div>
-      </header>
+      <!-- Header removed: the product title added a whole top strip and the
+           page is expected to fit one screen. -->
 
       <!-- HOME VIEW: left = index + watch, right = chat only. There is no
            separate "Ask a question" box: the chat input sends the question. -->
@@ -74,27 +94,23 @@
               </div>
             </section>
 
-            <!-- Results land here, below the index card: timestamps first,
-                 then the player. Shown only when an answer arrives. -->
+            <!-- Results land here, below the index card: the embedded player
+                 only (no citation row or headings above it). On a refusal the
+                 coverage list explains the refusal was a decision. -->
             <section id="watch-card" class="card" hidden>
-              <div id="sources" hidden>
-                <h3>Watch the explanation</h3>
-                <div id="primary-source"></div>
-
-                <h3 id="secondary-title" hidden>Also mentioned in</h3>
-                <div id="secondary-sources" class="chips"></div>
-              </div>
-
               <!-- Shown on a refusal: proves the answer was a decision, not a failure. -->
               <div id="covers" hidden>
-                <h3>What this course does cover</h3>
+                <h3>What this course covers</h3>
                 <ul id="covers-list"></ul>
               </div>
 
               <div id="player" hidden>
                 <iframe id="player-frame" title="Course video" allowfullscreen
+                  referrerpolicy="strict-origin-when-cross-origin"
                   allow="accelerometer; autoplay; encrypted-media; picture-in-picture"></iframe>
                 <p id="player-caption" class="hint"></p>
+                <div id="player-resizer" role="separator" aria-orientation="horizontal"
+                  aria-label="Resize player" title="Drag to resize · double-click to auto-fit"></div>
               </div>
             </section>
           </div>
@@ -147,6 +163,13 @@
               <p id="ask-status" class="status" hidden></p>
 
               <form id="ask-form" class="chat-input-row" autocomplete="off">
+                <button id="mic-button" type="button" class="voice-button"
+                  aria-label="Record a voice question" title="Ask by voice">
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                    <path fill="currentColor" d="M12 15a3.5 3.5 0 0 0 3.5-3.5V6a3.5 3.5 0 1 0-7 0v5.5A3.5 3.5 0 0 0 12 15Z"/>
+                    <path fill="currentColor" d="M18.5 11.5a.9.9 0 0 0-1.8 0 4.7 4.7 0 0 1-9.4 0 .9.9 0 0 0-1.8 0 6.5 6.5 0 0 0 5.6 6.4V21a.9.9 0 0 0 1.8 0v-3.1a6.5 6.5 0 0 0 5.6-6.4Z"/>
+                  </svg>
+                </button>
                 <input id="question" required maxlength="500" placeholder="Type a message..." aria-label="Type a message" />
                 <button id="ask-button" type="submit" class="send-btn" aria-label="Send message" title="Send">&#8593;</button>
               </form>
@@ -203,12 +226,134 @@
         </section>
       </main>
 
-      <footer>
-        <p>Every answer carries a video and a timestamp, or the course is reported as not covering the topic.</p>
-      </footer>
+      <!-- EVALS VIEW: the two dashboards from /eval, embedded in the app.
+           The sidebar's Evals submenu picks which one is visible; only one
+           of page-live / page-offline shows at a time. -->
+      <main id="view-eval" hidden>
+        <div class="eval-header">
+          <div class="eval-title-wrap">
+            <h2 id="eval-page-title">Live evaluation</h2>
+          </div>
+            <div class="eval-header-actions">
+            <div class="eval-system-row">
+              <span id="eval-system-dot" class="eval-system-dot"></span>
+              <span id="eval-system-status">Connecting…</span>
+              <span id="eval-system-queue" class="hint"></span>
+            </div>
+            <p id="eval-connection" class="status">Connecting…</p>
+          </div>
+        </div>
+
+        <div id="eval-page">
+          <!-- ================= LIVE EVALUATION ================= -->
+          <section id="page-live">
+            <div class="summary-grid" aria-label="Recent query summary">
+              <section class="summary-card">
+                <div class="summary-label">Recent queries</div>
+                <div id="summary-recent" class="summary-value">—</div>
+                <div class="summary-caption">Latest queries loaded</div>
+              </section>
+              <section class="summary-card">
+                <div class="summary-label">Answered</div>
+                <div id="summary-answered" class="summary-value">—</div>
+                <div class="summary-caption">Among recent queries</div>
+              </section>
+              <section class="summary-card">
+                <div class="summary-label">Needs review</div>
+                <div id="summary-review" class="summary-value">—</div>
+                <div class="summary-caption">Partial, not covered, or errors</div>
+              </section>
+              <section class="summary-card">
+                <div class="summary-label">Judge backlog</div>
+                <div id="summary-queue" class="summary-value">—</div>
+                <div class="summary-caption">Queued or running in recent queries</div>
+              </section>
+            </div>
+
+            <section class="live-workspace">
+              <section class="card recent-panel" aria-label="Recent queries">
+                <div class="recent-panel-head">
+                  <div>
+                    <h2>Recent queries</h2>
+                    <p id="live-count" class="recent-panel-sub">Loading recent queries…</p>
+                  </div>
+                  <button id="live-refresh" type="button" class="icon-button text-button">Refresh</button>
+                </div>
+                <input id="live-search" type="search" placeholder="Search questions or courses…" autocomplete="off" />
+                <section id="live-empty" class="card" hidden>
+                  <h2>No matching queries</h2>
+                  <p class="hint">Try another search or ask a question on the Home page.</p>
+                </section>
+                <div id="live-feed" aria-label="Query list"></div>
+              </section>
+              <section class="card selected-panel" aria-label="Selected query details">
+                <div id="selected-query-detail">
+                  <div class="selected-placeholder">Select a query to inspect its retrieval evidence and answer.</div>
+                </div>
+              </section>
+            </section>
+          </section>
+
+          <!-- ================= GOLDEN DATASET EVALUATION ================= -->
+          <section id="page-offline" hidden>
+            <section class="card">
+              <div id="eval-offline-head">
+                <span class="hint" id="eval-run-label">No runs yet</span>
+                <label class="hint" for="eval-run-sel">Run</label>
+                <select id="eval-run-sel"></select>
+                <label class="hint" for="eval-cmp-sel">Compare with</label>
+                <select id="eval-cmp-sel"></select>
+                <a id="eval-csv" class="hint" href="#">Export CSV</a>
+                <button id="eval-run-btn" type="button">Run eval</button>
+                <button id="eval-cancel-btn" type="button" hidden>Cancel run</button>
+                <button id="offline-refresh" type="button">Refresh</button>
+              </div>
+              <div id="eval-config-chips" class="hint" style="margin-top:8px"></div>
+              <div id="eval-status-strip" class="hint" style="margin-top:8px" hidden></div>
+            </section>
+
+            <section id="eval-empty" class="card" hidden>
+              <h2>No runs yet</h2>
+              <p class="hint">Run your first golden-set evaluation to populate this page. Either press
+              <b>Run eval</b> above, or from a terminal:</p>
+              <p><code id="eval-cli-hint">PYTHONPATH=backend\src .\.venv\Scripts\python.exe -m video_rag.cli eval-run --dataset backend\eval\golden_set.jsonl --label first</code></p>
+              <p class="hint">Judge metrics (incl. correctness) also need <b>VIDEO_RAG_JUDGE_MODEL</b> and the
+              classifier thresholds in <b>backend/eval/eval.yaml</b> — still unset, by design.</p>
+            </section>
+
+            <section class="card">
+              <h2>All metrics</h2>
+              <p class="hint">Current run against the comparison run and your targets.</p>
+              <div id="eval-metrics-table"></div>
+            </section>
+
+            <div class="eval-tiles">
+              <section class="card">
+                <h2>Lowest-scoring questions</h2>
+                <p class="hint">Open a row for the query, retrieved chunks and the answer.</p>
+                <div id="eval-lowest"></div>
+              </section>
+              <section class="card">
+                <h2>Failures by likely cause</h2>
+                <div id="eval-failures"></div>
+              </section>
+            </div>
+          </section>
+        </div>
+        <footer class="eval-footer" hidden></footer>
+
+        <!-- Question trace drawer (golden dataset page, fixed overlay). -->
+        <aside id="eval-drawer" hidden aria-label="Question trace">
+          <button id="eval-drawer-close" type="button">Close ×</button>
+          <div id="eval-drawer-body"></div>
+        </aside>
+      </main>
+
     </div><!-- /.shell-main -->
   </div><!-- /#app-shell -->
 
+  <script src="eval-lib.js"></script>
+  <script src="eval-dashboard.js"></script>
   <script src="app.js"></script>
 </body>
 

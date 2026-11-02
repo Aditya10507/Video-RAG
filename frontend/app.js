@@ -35,6 +35,7 @@ BADGE_CLASS.not_covered = "badge badge-refuse";
 var TRANSLATE_LANGUAGES = ["English", "Hindi", "Spanish", "French", "German",
   "Portuguese", "Arabic", "Japanese", "Chinese"];
 var TRANSLATE_SVG = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12.87 15.07 10.33 12.56l.03-.03a17.52 17.52 0 0 0 3.71-6.3H17V4h-7V2H8v2H1v2h11.17a15.62 15.62 0 0 1-3 4.92A15.7 15.7 0 0 1 7 7H5a17.7 17.7 0 0 0 2.83 5.33L2.5 17.58 3.92 19l5.25-5.25 3.27 3.27.43-1.95ZM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12Zm-2.62 7 1.62-4.33L19.12 17h-3.24Z"></path></svg>';
+var SPEAKER_SVG = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3Zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12ZM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06a9 9 0 0 0 0-17.54Z"></path></svg>';
 
 
 // --- Small helpers ---------------------------------------------------------
@@ -631,6 +632,56 @@ function showView(name) {
     library.setAttribute("aria-current", "page");
     home.removeAttribute("aria-current");
   }
+
+  // Leaving the evaluation view restores the regular app chrome.
+  el("view-eval").hidden = true;
+  document.body.classList.remove("eval-active");
+  clearEvalNavState();
+  if (window.EvalDashboard) {
+    window.EvalDashboard.pause();
+  }
+}
+
+// --- Evals view ---------------------------------------------------------------
+// The sidebar's Evals entry expands into a mini sidebar with one item per
+// dashboard; each shows its own dashboard inside the main area. The eval
+// console is height-constrained, so body gets the eval-active class while
+// it is open (see eval.css).
+
+function showEvalView(tab) {
+  el("view-home").hidden = true;
+  el("view-library").hidden = true;
+  el("view-eval").hidden = false;
+  document.body.classList.add("eval-active");
+
+  el("nav-home").classList.remove("is-active");
+  el("nav-home").removeAttribute("aria-current");
+  el("nav-library").classList.remove("is-active");
+  el("nav-library").removeAttribute("aria-current");
+  var live = el("nav-eval-live");
+  var golden = el("nav-eval-golden");
+  live.classList.toggle("is-active", tab !== "golden");
+  golden.classList.toggle("is-active", tab === "golden");
+  expandEvalSubnav(true);
+
+  if (window.EvalDashboard) {
+    window.EvalDashboard.show(tab);
+  }
+}
+
+function clearEvalNavState() {
+  var live = el("nav-eval-live");
+  var golden = el("nav-eval-golden");
+  if (live) { live.classList.remove("is-active"); }
+  if (golden) { golden.classList.remove("is-active"); }
+}
+
+function expandEvalSubnav(open) {
+  var subnav = el("eval-subnav");
+  var button = el("nav-evals");
+  if (!subnav || !button) { return; }
+  subnav.hidden = !open;
+  button.setAttribute("aria-expanded", String(open));
 }
 
 // The chat panel is always visible: "reveal" just refreshes the scope label.
@@ -766,6 +817,18 @@ function assistantBubbleNode(turn) {
         trow.hidden = !trow.hidden;
       });
       meta.appendChild(tbtn);
+      // Speaker button, next to translate: reads whatever the bubble shows
+      // (original or translated) through Gnani TTS.
+      var sbtn = document.createElement("button");
+      sbtn.type = "button";
+      sbtn.className = "translate-button bubble-translate voice-speaker";
+      sbtn.title = "Read answer aloud";
+      sbtn.setAttribute("aria-label", "Read answer aloud");
+      sbtn.innerHTML = SPEAKER_SVG;
+      sbtn.addEventListener("click", function () {
+        speakAnswer(text, sbtn);
+      });
+      meta.appendChild(sbtn);
       b.appendChild(trow);
     }
   }
@@ -1187,37 +1250,14 @@ async function renderAnswerStreamed(result, token, preStreamedText) {
 }
 
 function renderSources(result, instant) {
-  // Sources: the primary citation is the one the answer was written from.
-  var primaryHolder = el("primary-source");
-  removeChildren(primaryHolder);
-
-  var secondaryHolder = el("secondary-sources");
-  removeChildren(secondaryHolder);
-
+  // The citation row was removed from the UI: the embedded player IS the
+  // citation view now, and the small caption under it names the video.
   if (result.primary_source) {
-    primaryHolder.appendChild(citationButton(result.primary_source));
-
-    var link = document.createElement("a");
-    link.className = "external";
-    link.href = result.primary_source.url;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.textContent = "Open on YouTube at " + result.primary_source.timestamp_label;
-    primaryHolder.appendChild(document.createElement("br"));
-    primaryHolder.appendChild(link);
-
-    el("sources").hidden = false;
     playCitation(result.primary_source);
   } else {
-    el("sources").hidden = true;
     el("player").hidden = true;
+    el("player-caption").textContent = "";
   }
-
-  var others = result.also_mentioned_in || [];
-  el("secondary-title").hidden = others.length === 0;
-  others.forEach(function (citation) {
-    secondaryHolder.appendChild(citationButton(citation));
-  });
 
   // On a refusal, showing the syllabus proves the refusal was a decision
   // rather than a broken search.
@@ -1237,36 +1277,46 @@ function renderSources(result, instant) {
   el("watch-card").hidden = !(result.primary_source || covers.length);
 }
 
-function citationButton(citation) {
-  var button = document.createElement("button");
-  button.type = "button";
-  button.className = "citation";
-
-  var title = document.createElement("span");
-  title.textContent = citation.video_title;
-
-  var time = document.createElement("span");
-  time.className = "time";
-  time.textContent = citation.timestamp_label;
-
-  button.appendChild(title);
-  button.appendChild(time);
-  button.addEventListener("click", function () {
-    playCitation(citation);
-  });
-  return button;
-}
-
 // The timestamp is the whole point of the project: the embedded player starts
-// at the second the topic is explained.
+// at the second the topic is explained. The embed stays in-app, so the player
+// URL must carry the page origin as Referer — served without one YouTube
+// rejects the embed with "Video player configuration error" (Error 153),
+// whose error card is what sends people to youtube.com.
 function playCitation(citation) {
+  if (!citation || !citation.video_id) {
+    el("player").hidden = true;
+    return;
+  }
+
+  var startSeconds = Number(citation.start_seconds || 0);
+  if (!Number.isFinite(startSeconds)) {
+    startSeconds = 0;
+  }
+
   var source = "https://www.youtube.com/embed/" + encodeURIComponent(citation.video_id) +
-    "?start=" + citation.start_seconds + "&rel=0";
+    "?start=" + Math.max(0, Math.floor(startSeconds)) +
+    "&autoplay=1&rel=0&playsinline=1";
 
   el("player-frame").src = source;
   el("player-caption").textContent =
     citation.video_title + " starting at " + citation.timestamp_label;
   el("player").hidden = false;
+  el("player-frame").focus();
+}
+
+// Entry point for the eval dashboards: every video citation in the app stays
+// in the app. It takes you to the Home watch card and plays the cited moment
+// in the embedded player.
+function openInAppPlayer(citation) {
+  showView("home");
+  if (!citation || !citation.video_id) {
+    return;
+  }
+
+  el("covers").hidden = true;
+  removeChildren(el("covers-list"));
+  el("watch-card").hidden = false;
+  playCitation(citation);
 }
 
 
@@ -1363,6 +1413,601 @@ function initSidebar() {
 }
 
 
+// --- Voice: spoken questions (mic -> Gnani STT) and spoken answers (TTS) ----
+//
+// Questions are streamed live: the browser pipes raw PCM frames through a
+// backend WebSocket proxy to Gnani's realtime STT (Prisma v3.0 streaming).
+// Transcripts come back per spoken phrase, so the question appears word by
+// word in the chat bar, in the language it is spoken (Hindi in Hindi).
+// A client-side voice-activity check stops the mic after ~3.5 s of silence
+// (or ~4.5 s if nothing was ever spoken) and sends the question. If the
+// stream can't be used, it falls back to record-then-upload over the REST
+// endpoint. STT runs only while the mic is on; TTS only on a speaker click,
+// so the free credit pool is spent one request at a time.
+
+var voice = {
+  recording: false, finalizing: false, stream: null, recorder: null, chunks: [],
+  ws: null, connected: false, audioCtx: null, source: null, sink: null,
+  processor: null, segments: [], partial: "", sampleRate: 48000,
+  playing: null, button: null
+};
+
+// Silence detection knobs. speechRms is generous: laptop mics peak far
+// above it, background hiss/keyboard taps stay below.
+var VAD = {
+  sampleRate: null,
+  hadSpeech: false, calmMs: 0, elapsedMs: 0, loudFrames: 0,
+  speechRms: 0.02, silenceRms: 0.012,
+  silenceSendMs: 3500,   // stop reading and send once spoken words run out
+  noSpeechStopMs: 4500   // stop and report "nothing heard" if still silent
+};
+
+// Decode + resample (properly, via OfflineAudioContext) to 16 kHz mono, then
+// wrap the PCM frames in a RIFF/WAVE container.
+async function recordingToWav(blob) {
+  var bytes = await blob.arrayBuffer();
+  var ctx = new (window.AudioContext || window.webkitAudioContext)();
+  var decoded;
+  try {
+    decoded = await ctx.decodeAudioData(bytes);
+  } finally {
+    ctx.close();
+  }
+
+  if (decoded.sampleRate === 16000 && decoded.numberOfChannels === 1) {
+    return pcm16ToWav(decoded.getChannelData(0), 16000);
+  }
+  var frames = Math.max(1, Math.ceil(decoded.duration * 16000));
+  var offline = new window.OfflineAudioContext(1, frames, 16000);
+  var source = offline.createBufferSource();
+  source.buffer = decoded;
+  source.connect(offline.destination);
+  source.start();
+  var rendered = await offline.startRendering();
+  return pcm16ToWav(rendered.getChannelData(0), 16000);
+}
+
+function pcm16ToWav(samples, sampleRate) {
+  var pcm = new window.Int16Array(samples.length);
+  for (var i = 0; i < samples.length; i++) {
+    var s = Math.max(-1, Math.min(1, samples[i]));
+    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  var bytes = new Uint8Array(44 + pcm.byteLength);
+  var view = new window.DataView(bytes.buffer);
+
+  var writeAscii = function (offset, text) {
+    for (var i = 0; i < text.length; i++) {
+      view.setUint8(offset + i, text.charCodeAt(i));
+    }
+  };
+  writeAscii(0, "RIFF");
+  view.setUint32(4, 36 + pcm.byteLength, true);
+  writeAscii(8, "WAVE");
+  writeAscii(12, "fmt ");
+  view.setUint32(16, 16, true);          // PCM fmt chunk size
+  view.setUint16(20, 1, true);           // PCM format
+  view.setUint16(22, 1, true);           // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);  // byte rate (16-bit mono)
+  view.setUint16(32, 2, true);           // block align
+  view.setUint16(34, 16, true);          // bits per sample
+  writeAscii(36, "data");
+  view.setUint32(40, pcm.byteLength, true);
+  bytes.set(new Uint8Array(pcm.buffer), 44);
+  return new Blob([bytes], { type: "audio/wav" });
+}
+
+async function voiceRequest(path, init) {
+  var headers = init.headers || {};
+  var apiKey = getApiKey();
+  if (apiKey) {
+    headers["X-API-Key"] = apiKey;
+  }
+  var response = await fetch(API_BASE + path, Object.assign({}, init, { headers: headers }));
+  if (!response.ok) {
+    var payload = null;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      payload = null;
+    }
+    throw new Error(payload && payload.message ? payload.message : "HTTP " + response.status);
+  }
+  return response;
+}
+
+function micButtonBusy(busy) {
+  var button = el("mic-button");
+  if (!button) {
+    return;
+  }
+  button.classList.toggle("busy", busy);
+  button.disabled = busy;
+}
+
+function stopMicRecording() {
+  if (voice.recorder && voice.recorder.state !== "inactive") {
+    voice.recorder.stop();  // onstop below sends it
+    return;
+  }
+  if (voice.stream) {
+    voice.stream.getTracks().forEach(function (track) { track.stop(); });
+    voice.stream = null;
+  }
+}
+
+function voiceWsUrl() {
+  var base = API_BASE || window.location.origin;
+  return base.replace(/^http/, "ws") + "/voice/stream?sample_rate=" + voice.sampleRate;
+}
+
+// Silence energy analysis on the frames that are already being sent to the
+// stream. Speech needs 3 loud frames (~32 ms) so a click or door slam does
+// not count; then keeping quiet for VAD.silenceSendMs ends the capture.
+function trackVoiceActivity(samples) {
+  var v = VAD;
+  var sum = 0;
+  for (var i = 0; i < samples.length; i++) {
+    sum += samples[i] * samples[i];
+  }
+  var rms = Math.sqrt(sum / samples.length);
+  v.elapsedMs += (samples.length / v.sampleRate) * 1000;
+
+  if (rms >= v.speechRms) {
+    v.loudFrames += 1;
+    if (v.loudFrames >= 3) {
+      v.hadSpeech = true;
+      v.calmMs = 0;
+    }
+  } else if (rms < v.silenceRms) {
+    v.loudFrames = 0;
+    v.calmMs += (samples.length / v.sampleRate) * 1000;
+  } else {
+    v.loudFrames = 0;  // between the two thresholds: keep current state
+  }
+
+  if ((v.hadSpeech && v.calmMs >= v.silenceSendMs) ||
+      (!v.hadSpeech && v.elapsedMs >= v.noSpeechStopMs)) {
+    finalizeVoiceCapture();
+  }
+}
+
+function floatToPcm16(samples) {
+  var pcm = new window.Int16Array(samples.length);
+  for (var i = 0; i < samples.length; i++) {
+    var s = Math.max(-1, Math.min(1, samples[i]));
+    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  return pcm.buffer;
+}
+
+// Insert the newest transcript phrase where the user currently is typed/
+// spoken: the settled segments become the question shown in the chat bar,
+// with the still-unconfirmed partial tail appended live.
+function heardSoFarText() {
+  var parts = voice.segments.slice();
+  if (voice.partial) {
+    parts.push(voice.partial);
+  }
+  var text = parts.join(" ").replace(/\s+/g, " ").trim();
+  var max = parseInt(el("question").maxLength, 10) || 500;
+  return text.slice(0, max);
+}
+
+function openWebSocket(url) {
+  return new window.Promise(function (resolve, reject) {
+    var ws = new window.WebSocket(url);
+    voice.ws = ws;
+    voice.connected = false;
+    ws.addEventListener("open", function () { resolve(ws); });
+    ws.addEventListener("error", function () { reject(new Error("voice stream unavailable")); });
+    ws.addEventListener("close", function () {
+      if (!voice.connected) {
+        reject(new Error("voice stream closed"));
+      }
+      voice.ws = null;
+      voice.connected = false;
+    });
+    ws.addEventListener("message", function (event) {
+      var data = null;
+      try {
+        data = window.JSON.parse(event.data);
+      } catch (error) {
+        return;
+      }
+      if (!data || !data.type) {
+        return;
+      }
+      if (data.type === "connected") {
+        voice.connected = true;
+      } else if (data.type === "transcript" || data.type === "final_transcript") {
+        // Completed utterance: settle it, drop the running partial.
+        if (data.text) {
+          voice.segments.push(data.text);
+          voice.partial = "";
+          el("question").value = heardSoFarText();
+        }
+      } else if (data.type === "partial_transcript") {
+        // Word-by-word updates while the user is still speaking.
+        voice.partial = data.text || "";
+        if (voice.partial) {
+          el("question").value = heardSoFarText();
+        }
+      } else if (data.type === "error" && !voice.segments.length) {
+        setStatus(el("ask-status"), data.message || "STT error.", "error");
+      }
+    });
+  });
+}
+
+// Live capture: PCM frames go out as they are recorded; every transcript
+// segment Gnani sends lands in the chat bar immediately.
+async function startVoiceStreaming(stream) {
+  // AudioContext first: the real sample rate must be declared when the
+  // stream handshake happens (query parameter on voiceWsUrl()).
+  var ctx = new (window.AudioContext || window.webkitAudioContext)();
+  voice.audioCtx = ctx;
+  voice.sampleRate = ctx.sampleRate;
+  VAD.sampleRate = ctx.sampleRate;
+  if (ctx.state === "suspended") {
+    ctx.resume();  // already inside a click handler, so this always runs
+  }
+
+  await openWebSocket(voiceWsUrl());
+  if (!voice.recording || voice.finalizing) {
+    throw new Error("capture already ended");  // silence timer won the race
+  }
+
+  var processor = ctx.createScriptProcessor ? ctx.createScriptProcessor(512, 1, 1) : null;
+  if (!processor) {
+    throw new Error("voice streaming not supported here");
+  }
+  voice.processor = processor;
+  voice.source = ctx.createMediaStreamSource(stream);
+  voice.sink = ctx.createGain();
+  voice.sink.gain.value = 0;  // processor must reach destination to run; mute it
+
+  processor.addEventListener("audioprocess", function (event) {
+    var samples = event.inputBuffer.getChannelData(0);
+    if (voice.connected) {
+      trackVoiceActivity(samples);
+      if (voice.ws && voice.ws.readyState === 1 && !voice.finalizing) {
+        voice.ws.send(floatToPcm16(samples));  // 512 samples = 1024 bytes
+      }
+    }
+  });
+
+  voice.source.connect(processor);
+  processor.connect(voice.sink);
+  voice.sink.connect(ctx.destination);
+}
+
+// Tear down whatever capture state exists (WS, audio nodes, mic tracks).
+function closeVoiceCapture() {
+  if (voice.ws) {
+    try {
+      voice.ws.close();
+    } catch (error) {
+      /* already closed */
+    }
+  }
+  if (voice.processor) {
+    try {
+      voice.processor.disconnect();
+      voice.source.disconnect();
+      voice.sink.disconnect();
+    } catch (error) {
+      /* ignore */
+    }
+    voice.processor = null;
+    voice.source = null;
+    voice.sink = null;
+  }
+  if (voice.audioCtx) {
+    voice.audioCtx.close();
+    voice.audioCtx = null;
+  }
+  if (voice.stream) {
+    voice.stream.getTracks().forEach(function (track) { track.stop(); });
+    voice.stream = null;
+  }
+}
+
+// Silence path (or another mic click): commit the pending phrase, collect
+// the last transcript for a moment, then stop and send the question.
+async function finalizeVoiceCapture() {
+  if (voice.finalizing) {
+    return;
+  }
+  voice.finalizing = true;
+  el("mic-button").classList.remove("recording");
+  micButtonBusy(true);
+  var status = el("ask-status");
+
+  try {
+    if (voice.ws && voice.ws.readyState === 1) {
+      voice.ws.send('{"type":"commit"}');  // flush the phrase still open
+    }
+    await sleep(1200);  // leave Gnani time to return the final segment
+  } finally {
+    closeVoiceCapture();
+  }
+
+  var text = heardSoFarText();
+  try {
+    if (!text) {
+      setStatus(status, "Nothing heard - try again closer to the mic.", "error");
+      return;
+    }
+    el("question").value = text;
+    setStatus(status, "Heard: " + text, "info");
+    // Question is complete: send it without waiting for the user.
+    if (el("ask-form").requestSubmit) {
+      el("ask-form").requestSubmit();
+    } else {
+      handleAsk(new window.Event("submit", { cancelable: true }));
+    }
+  } finally {
+    micButtonBusy(false);
+    voice.recording = false;
+    voice.finalizing = false;
+  }
+}
+
+// One press starts, the next stops. A stream failure degrades safely to the
+// record-then-upload flow against the REST endpoint.
+function initVoiceInput() {
+  var button = el("mic-button");
+  if (!button) {
+    return;
+  }
+  if (!window.WebSocket || !window.AudioContext) {
+    button.disabled = true;
+    button.title = "Voice input needs browser media support";
+    return;
+  }
+
+  button.addEventListener("click", function () {
+    if (voice.recording) {
+      finalizeVoiceCapture();  // manual stop == silence stop
+      return;
+    }
+
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      stopSpeaking();  // never talk over a new question being asked
+      voice.recording = true;
+      voice.finalizing = false;
+      voice.stream = stream;
+      voice.segments = [];
+      voice.partial = "";
+      // Fresh silence-tracking state per capture.
+      VAD.hadSpeech = false;
+      VAD.calmMs = 0;
+      VAD.elapsedMs = 0;
+      VAD.loudFrames = 0;
+      button.classList.add("recording");
+      setStatus(el("ask-status"), "Listening... pause 3 s and the question sends itself.", "info");
+
+      startVoiceStreaming(stream).catch(function () {
+        // Streaming failed (or ended before wiring): drop any half-built
+        // audio state, then fall back to record-then-upload.
+        closeVoiceCapture();
+        if (!voice.recording) {
+          return;  // silence timer already ended the capture; nothing to do
+        }
+        startRecorderFallback(button, stream);
+      });
+    }).catch(function () {
+      setStatus(el("ask-status"), "Microphone access was denied.", "error");
+    });
+  });
+}
+
+// Legacy path: MediaRecorder (webm) -> decode -> 16 kHz WAV -> REST upload.
+function startRecorderFallback(button, stream) {
+  VAD.sampleRate = VAD.sampleRate || 48000;
+  voice.recorder = new window.MediaRecorder(stream);
+  voice.chunks = [];
+  setStatus(el("ask-status"), "Listening (recording mode)... tap the mic to stop.", "info");
+
+  voice.recorder.addEventListener("dataavailable", function (event) {
+    if (event.data && event.data.size > 0) {
+      voice.chunks.push(event.data);
+    }
+  });
+  voice.recorder.addEventListener("stop", async function () {
+    voice.recording = false;
+    voice.finalizing = false;
+    button.classList.remove("recording");
+    stopMicRecording();
+
+    var raw = new window.Blob(voice.chunks);
+    var status = el("ask-status");
+    try {
+      micButtonBusy(true);
+      var wav = await recordingToWav(raw);
+      setStatus(status, "Transcribing...", "info");
+      var response = await voiceRequest("/voice/transcribe", {
+        method: "POST",
+        body: (function () {
+          var form = new window.FormData();
+          form.append("audio_file", wav, "recording.wav");
+          return form;
+        })()
+      });
+      var payload = await response.json();
+      var text = (payload && payload.text) || "";
+      if (!text) {
+        setStatus(status, "Nothing heard - try again closer to the mic.", "error");
+        return;
+      }
+      el("question").value = text.slice(0, parseInt(el("question").maxLength, 10) || 500);
+      setStatus(status, "Heard: " + text, "info");
+      // Demo flow: the transcribed question is sent immediately.
+      if (el("ask-form").requestSubmit) {
+        el("ask-form").requestSubmit();
+      } else {
+        handleAsk(new window.Event("submit", { cancelable: true }));
+      }
+    } catch (error) {
+      setStatus(status, error.message, "error");
+    } finally {
+      micButtonBusy(false);
+    }
+  });
+  voice.recorder.start();
+}
+
+// Speak (or stop) the text currently displayed in one answer bubble. Reading
+// textNode at click time means translated answers are spoken in that language
+// (TTS language "auto" follows the text).
+function stopSpeaking() {
+  if (voice.playing) {
+    voice.playing.pause();
+    voice.playing = null;
+  }
+  if (voice.button) {
+    voice.button.classList.remove("speaking");
+    voice.button.disabled = false;
+    voice.button.title = "Read answer aloud";
+    voice.button = null;
+  }
+}
+
+async function speakAnswer(textNode, button) {
+  if (voice.button === button) {
+    stopSpeaking();
+    return;
+  }
+  stopSpeaking();
+
+  var text = textNode.textContent.trim();
+  if (!text) {
+    return;
+  }
+
+  var status = el("ask-status");
+  button.disabled = true;
+  try {
+    var response = await voiceRequest("/voice/speak", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: window.JSON.stringify({ text: text, language: "auto" })
+    });
+    var blob = await response.blob();
+    var previous = voice.playing;  // racing clicks: keep only the newest audio
+    var audio = new window.Audio(window.URL.createObjectURL(blob));
+    voice.playing = audio;
+    voice.button = button;
+    button.classList.add("speaking");
+    button.disabled = false;
+    button.title = "Stop reading";
+    audio.addEventListener("ended", function () {
+      if (voice.playing === audio) {
+        stopSpeaking();
+      }
+    });
+    audio.addEventListener("error", function () {
+      if (voice.playing === audio) {
+        stopSpeaking();
+        setStatus(status, "Could not play the spoken answer.", "error");
+      }
+    });
+    if (previous) {
+      previous.pause();
+    }
+    await audio.play();
+  } catch (error) {
+    stopSpeaking();
+    setStatus(status, error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// --- Player resize: drag the handle under the player for a taller player ---
+// Height persists across reloads; double-click returns to auto-fit. The
+// player's width follows the left column, so dragging the chat panel wider
+// widens the player too.
+
+var PLAYER_HEIGHT_KEY = "video-rag.player-height";
+var PLAYER_MIN_PX = 240;
+
+function setPlayerHeight(pixels) {
+  var frame = el("player-frame");
+  if (!frame) {
+    return;
+  }
+  // Keep the player + caption + resizer on screen: leave room for the index
+  // card above and a little padding below.
+  var max = Math.max(PLAYER_MIN_PX, window.innerHeight - 240);
+  var height = Math.round(Math.min(Math.max(pixels, PLAYER_MIN_PX), max));
+  document.documentElement.style.setProperty("--player-height", height + "px");
+  frame.classList.add("player-height-custom");
+  try {
+    window.localStorage.setItem(PLAYER_HEIGHT_KEY, String(height));
+  } catch (error) {
+    /* private mode: layout still works, it just won't persist */
+  }
+}
+
+function resetPlayerHeight() {
+  var frame = el("player-frame");
+  document.documentElement.style.removeProperty("--player-height");
+  if (frame) {
+    frame.classList.remove("player-height-custom");
+  }
+  try {
+    window.localStorage.removeItem(PLAYER_HEIGHT_KEY);
+  } catch (error) {
+    /* ignore */
+  }
+}
+
+function initPlayerResizer() {
+  var resizer = el("player-resizer");
+  if (!resizer) {
+    return;
+  }
+
+  // A saved custom height beats the auto-fit cap from the previous session.
+  try {
+    var saved = parseInt(window.localStorage.getItem(PLAYER_HEIGHT_KEY), 10);
+    if (saved >= PLAYER_MIN_PX && saved <= 4000) {
+      setPlayerHeight(saved);
+    }
+  } catch (error) {
+    /* ignore */
+  }
+
+  resizer.addEventListener("dblclick", resetPlayerHeight);
+
+  resizer.addEventListener("pointerdown", function (startEvent) {
+    startEvent.preventDefault();
+    resizer.setPointerCapture(startEvent.pointerId);
+    document.getElementById("app-shell").classList.add("player-resizing");
+
+    var frame = el("player-frame");
+    var startY = startEvent.clientY;
+    var startHeight = frame.getBoundingClientRect().height;
+
+    var onMove = function (event) {
+      setPlayerHeight(startHeight + (event.clientY - startY));
+    };
+    var onUp = function () {
+      resizer.removeEventListener("pointermove", onMove);
+      resizer.removeEventListener("pointerup", onUp);
+      resizer.removeEventListener("pointercancel", onUp);
+      document.getElementById("app-shell").classList.remove("player-resizing");
+    };
+
+    resizer.addEventListener("pointermove", onMove);
+    resizer.addEventListener("pointerup", onUp);
+    resizer.addEventListener("pointercancel", onUp);
+  });
+}
+
 // --- Start up --------------------------------------------------------------
 
 document.addEventListener("DOMContentLoaded", function () {
@@ -1404,10 +2049,22 @@ document.addEventListener("DOMContentLoaded", function () {
     showView("library");
     loadLibrary();
   });
+  el("nav-evals").addEventListener("click", function () {
+    // Toggle the mini sidebar; the dashboards themselves open from the items.
+    expandEvalSubnav(el("eval-subnav").hidden);
+  });
+  el("nav-eval-live").addEventListener("click", function () {
+    showEvalView("live");
+  });
+  el("nav-eval-golden").addEventListener("click", function () {
+    showEvalView("golden");
+  });
 
   renderCourseOptions();
   initSidebar();
   initChatResizer();
+  initPlayerResizer();
+  initVoiceInput();
   showView("home");
   loadLibrary();
 

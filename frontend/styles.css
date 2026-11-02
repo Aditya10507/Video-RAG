@@ -75,8 +75,11 @@ textarea {
   position: relative;
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 140px);
-  min-height: 480px;
+  /* Fills the viewport: topbar + footer were removed so the home screen
+     never scrolls (100vh minus the 22px of shell padding). */
+  height: calc(100vh - 22px);
+  height: calc(100dvh - 22px);
+  min-height: 420px;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -362,6 +365,61 @@ textarea {
   line-height: 1;
 }
 
+/* Mic button, left of the chat input: same round shape as the send button.
+   .recording = capturing audio, .busy = converting/uploading (disabled). */
+.voice-button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.voice-button svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.voice-button:hover {
+  color: var(--accent);
+}
+
+.voice-button.recording {
+  color: #d33; /* var(--danger) is not defined in this stylesheet */
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+
+.voice-button.busy {
+  color: var(--accent);
+  opacity: 0.6;
+  cursor: wait;
+}
+
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(221, 51, 51, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(221, 51, 51, 0); transform: scale(1.08); }
+}
+
+/* Speaker button in an answer bubble while the answer is being read: the
+   icon stays on (same accent as idle translate buttons) with a soft glow. */
+.translate-button.voice-speaker.speaking {
+  color: #197a3c;
+  animation: speaker-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes speaker-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(25, 122, 60, 0.3); }
+  50% { box-shadow: 0 0 0 4px rgba(25, 122, 60, 0); }
+}
+
 .chat-disclaimer {
   margin: 6px 0 12px;
   text-align: center;
@@ -393,6 +451,12 @@ textarea {
   flex-direction: column;
   gap: 18px;
   min-width: 0;
+  /* The watch card (player) can grow tall: scroll inside the left column
+     instead of stretching the page beyond the viewport. */
+  max-height: calc(100vh - 22px);
+  max-height: calc(100dvh - 22px);
+  overflow-y: auto;
+  padding-right: 2px;
 }
 
 .home-right {
@@ -497,7 +561,9 @@ textarea {
   position: relative;
   flex: 1;
   min-width: 0;
-  padding: 0 20px 48px;
+  /* No topbar and no footer in the app: 10px top + 12px bottom is the only
+     chrome, so the views can size to one viewport (100vh - 22px). */
+  padding: 10px 20px 12px;
 }
 
 .icon-button {
@@ -871,19 +937,57 @@ button:disabled {
 /* --- Player -------------------------------------------------------------- */
 
 #player {
-  margin-top: 18px;
+  margin-top: 4px;
 }
 
+/* The player is the citation view and must fit the viewport together with
+   the index card above it: 16:9 is capped at the height left below the index
+   card, and YouTube letterboxes inside the frame, so the watch section never
+   becomes something to scroll. A custom height (dragged via the resizer)
+   overrides the cap: --player-height is only set while a user height exists. */
 #player-frame {
   width: 100%;
   aspect-ratio: 16 / 9;
+  height: var(--player-height, auto);
+  max-height: calc(100vh - 380px);
+  max-height: calc(100dvh - 380px);
   border: 0;
   border-radius: 10px;
   background: #000;
 }
 
+/* A dragged player may exceed the viewport cap (the user asked for the
+   height): lift the cap only while a custom height is set. */
+#player-frame.player-height-custom {
+  max-height: none;
+}
+
 #player-caption {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
+}
+
+/* Drag handle under the player: sets a custom height, double-click resets
+   to auto-fit. Width follows the left column (chat resizer widens it). */
+#player-resizer {
+  width: 72px;
+  height: 6px;
+  margin: 10px auto 0;
+  border-radius: 999px;
+  background: var(--line);
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+#player-resizer:hover,
+#player-resizer:active {
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+#app-shell.player-resizing,
+#app-shell.player-resizing * {
+  user-select: none !important;
+  cursor: ns-resize !important;
 }
 
 /* --- Footer -------------------------------------------------------------- */
@@ -940,6 +1044,63 @@ footer {
   width: 22px;
   text-align: center;
   font-size: 17px;
+}
+
+/* --- Evals mini sidebar: expands in place under the Evals entry ---------- */
+
+.side-link .side-caret {
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+
+.side-link[aria-expanded="true"] .side-caret {
+  transform: rotate(90deg);
+}
+
+.side-subnav {
+  list-style: none;
+  margin: 2px 0 6px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.side-sublink {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px 8px 34px;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 0 8px 8px 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.side-sublink:hover {
+  background: #eef1f6;
+}
+
+.side-sublink.is-active {
+  background: #eaf0ff;
+  border-left-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.side-sub-icon {
+  flex: none;
+  width: 18px;
+  text-align: center;
+  font-size: 14px;
 }
 
 /* --- Library view: indexed courses as a list ------------------------------ */

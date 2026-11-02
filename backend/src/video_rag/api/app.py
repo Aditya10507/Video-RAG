@@ -15,6 +15,7 @@ from ..container import build_container
 from ..logging_config import setup as setup_logging
 from .eval_routes import router as eval_router
 from .routes import router
+from .speech import router as voice_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -28,6 +29,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.container = build_container(settings)
     app.include_router(router)
     app.include_router(eval_router)
+    app.include_router(voice_router)
     if settings.cors_origins:
         from fastapi.middleware.cors import CORSMiddleware
 
@@ -44,7 +46,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         rid = uuid.uuid4().hex[:8]
         # Minimal per-IP sliding-window rate limit (no extra deps).
         if settings.rate_limit_per_minute > 0 and request.url.path.startswith(
-            ("/ask", "/ingest", "/translate")
+            ("/ask", "/ingest", "/translate", "/voice")
         ):
             now = time.time()
             ip = request.client.host if request.client else "anon"
@@ -56,10 +58,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 return JSONResponse({"code": "rate_limited", "message": "slow down"}, status_code=429)
             window.append(now)
         response = await call_next(request)
+        # NB: strict-origin-when-cross-origin, not no-referrer. The YouTube
+        # embedded player requires an HTTP Referer header (else it shows
+        # "Video player configuration error", Error 153), and the stricter
+        # policy is what suppresses it on the cross-origin iframe request.
         response.headers["X-Request-ID"] = rid
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         return response
 
     front = Path(settings.frontend_dir)
@@ -84,6 +90,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         def eval_lib():
             return FileResponse(str(front / "eval-lib.js"),
                                 media_type="application/javascript")
+
+        @app.get("/eval-dashboard.js", include_in_schema=False)
+        def eval_dashboard_js():
+            return FileResponse(str(front / "eval-dashboard.js"),
+                                media_type="application/javascript")
+
+        @app.get("/eval.css", include_in_schema=False)
+        def eval_css():
+            return FileResponse(str(front / "eval.css"), media_type="text/css")
 
         @app.get("/styles.css", include_in_schema=False)
         def css():

@@ -19,3 +19,12 @@ class AskRequest(BaseModel):
 class TranslateRequest(BaseModel):
     answer: str = Field(min_length=1, max_length=12000)
     target_language: str = Field(min_length=2, max_length=40)
+
+
+class SpeakRequest(BaseModel):
+    """Text to read aloud (matches the Gnani Timbre TTS payload)."""
+
+    text: str = Field(min_length=1, max_length=4000)
+    # "auto" lets the backend voice the language the answer was displayed in;
+    # an explicit value like "hi-IN" or "hi-en" forces a synthesis language.
+    language: str = Field(default="auto", max_length=10)
