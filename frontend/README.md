@@ -15,7 +15,14 @@ Five files, no build step, no packages, no framework.
 Start the backend with the frontend folder attached and open one address:
 
 ```powershell
-.\run.ps1 serve
+# Windows (PowerShell, from the project folder)
+$env:PYTHONPATH = "backend\src"
+.\.venv\Scripts\python.exe -m video_rag.cli serve
+```
+
+```bash
+# Linux / macOS (from the project folder)
+PYTHONPATH=backend/src .venv/bin/python -m video_rag.cli serve
 ```
 
 Then open <http://127.0.0.1:8000>.
