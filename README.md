@@ -119,6 +119,67 @@ PYTHONPATH=backend/src .venv/bin/python -m video_rag.cli smoke
 VIDEO_RAG_FRONTEND_DIR=frontend PYTHONPATH=backend/src .venv/bin/python -m video_rag.cli serve
 ```
 
+## Architecture at a glance
+
+Three small pictures explain the whole system. No prior diagram-reading needed:
+boxes are things that exist, arrows are the direction information flows.
+
+### 1. What the app does, in one line each
+
+```mermaid
+flowchart LR
+    A["🎬 A YouTube<br>course playlist"] --> B["📜 Read the captions<br>of every video"]
+    B --> C["✂️ Cut the text into<br>~1-minute pieces"]
+    C --> D[("📚 Save each piece<br>with its timestamp")]
+    D --> E["🎤 Student asks<br>a question"]
+    E --> F["🔎 Find the pieces<br>that best match it"]
+    F --> G{"Does the course<br>explain this topic?"}
+    G -- "Yes" --> H["✅ Answer + citation you<br>can click to jump to<br>that exact second"]
+    G -- "No" --> I["🚫 Refuse: 'not covered'<br>never invent an answer"]
+```
+
+### 2. The two engines: build once, answer many times
+
+```mermaid
+flowchart TB
+    subgraph INDEX["🏗️ One time per course: build the index"]
+        direction LR
+        I1["🎬 Paste a<br>playlist link"] --> I2["📺 List every video<br>(yt-dlp)"] --> I3["📜 Fetch word-level<br>captions"] --> I4["✂️ Cut into ~60 s<br>sentence-safe chunks"] --> I5[("📚 Store in Qdrant<br>plus SQLite")]
+    end
+    subgraph ASK["🔁 Every question: answer from that index"]
+        direction LR
+        A1["❓ A question"] --> A2["🔎 Search: dense top 30<br>+ keyword top 30"] --> A3["🏆 Rerank down<br>to top 8"] --> A4{"Score gate"}
+        A4 -- "high" --> A5["✍️ LLM writes the<br>answer from chunks only"]
+        A4 -- "low" --> A6["🚫 Refuse:<br>topic not covered"]
+        A5 --> A7["⏱️ Citation: video link<br>+ exact second"]
+    end
+    I5 -.->|"already stored"| A2
+```
+
+### 3. One server, six helpers: who talks to whom
+
+```mermaid
+flowchart TB
+    UI["🌐 Browser<br>plain HTML page<br>(no framework)"] -->|"HTTP + SSE streaming"| API["⚙️ FastAPI backend<br>one process, port 8000"]
+    API --> ING["🧱 Ingest service"]
+    API --> ASK["💬 Ask service"]
+    API --> VOICE["🎙️ Voice service"]
+    ING --> YT["📺 YouTube<br>video listing + captions"]
+    ASK --> QD[("📚 Qdrant Cloud<br>vector search")]
+    ASK --> JINA["🔢 Jina API<br>embeddings + reranker"]
+    ASK --> LLM["🧠 Any OpenAI-compatible<br>LLM (writes answers)"]
+    ASK --> SQL[("🗄️ SQLite<br>courses, videos, chat")]
+    VOICE --> GNANI["🔊 Gnani AI<br>Prisma speech-to-text<br>Timbre text-to-speech"]
+    UI -->|"mic records → server proxies"| VOICE
+```
+
+The voice loop as a plain sentence: you press the mic, **Gnani Prisma** turns
+your speech into text while it streams, that text goes through the same
+question pipeline as above, and **Gnani Timbre** reads the answer back out
+loud. Questions asked in Hindi or Hinglish get answers in the same language.
+
+For the reasoning behind each layer, keep reading below.
+
 ## How it works, in four layers
 
 1. **Input.** A pasted link is parsed into a video, playlist or channel. The
