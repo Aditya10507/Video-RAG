@@ -1,4 +1,5 @@
-
+# Detailed Document 
+https://docs.google.com/document/d/1efbRbJ7ydVvjUDUAoq6L0to9UrH6G-PzDBmuiecTFYU/edit?usp=drive_link
 # DEMO VIDEO 
 https://github.com/user-attachments/assets/08c7bd36-4dec-46e4-ab7d-d90318545c54
 # EVALUATION VIDEO
